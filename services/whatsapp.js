@@ -167,8 +167,14 @@ async function triggerSummarize(phone) {
       .join('\n');
 
     // Ask Claude to extract lead info + summary
-    const extracted = await summarizeWithClaude(transcript, convo.contact);
-
+    try {
+    let extracted = { summary: 'Summary unavailable', interest: '', leadStatus: 'warm' };
+    
+    try {
+      extracted = await summarizeWithClaude(transcript, convo.contact);
+    } catch (claudeErr) {
+      console.log(`⚠️  Claude failed (${claudeErr.message}) — saving to Airtable without summary`);
+    }
     // Merge extracted contact info
     if (extracted.name) convo.contact.name = extracted.name;
     if (extracted.email) convo.contact.email = extracted.email;
