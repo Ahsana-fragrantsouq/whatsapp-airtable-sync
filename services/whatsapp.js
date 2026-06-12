@@ -6,8 +6,7 @@ const { saveToAirtable } = require('./airtable');
 let currentQR = null;
 let clientStatus = 'initializing';
 const conversations = {};
-const lidToPhone = {}; // maps LID-style id (e.g. from msg.to on outgoing) -> real phone number
-const INACTIVITY_MINUTES = parseInt(process.env.INACTIVITY_MINUTES || '30');
+const INACTIVITY_MINUTES = parseInt(process.env.INACTIVITY_MINUTES || '5');
 
 // Returns current time as a readable IST string (e.g. "12/06/2026, 7:22:42 pm")
 function nowIST() {
@@ -18,7 +17,6 @@ const client = new Client({
   authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth' }),
   puppeteer: {
     headless: true,
-    protocolTimeout: 180000, // 3 minutes — Render can be slow to launch Chrome
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     args: [
       '--no-sandbox',
@@ -76,12 +74,7 @@ client.on('message', async (msg) => {
   let contactName = null;
   try {
     const contact = await msg.getContact();
-    if (contact.id?.user) {
-      const realPhone = contact.id.user.replace(/\D/g, '');
-      // Remember: this LID (msg.from) maps to this real phone number
-      if (phone !== realPhone) lidToPhone[phone] = realPhone;
-      phone = realPhone;
-    }
+    if (contact.id?.user) phone = contact.id.user.replace(/\D/g, '');
     contactName = contact.pushname || contact.name || null;
   } catch (_) {}
 
@@ -119,17 +112,14 @@ client.on('message_create', async (msg) => {
   if (!msg.fromMe) return;
   if (msg.to === 'status@broadcast') return;
 
-  // msg.to may be a LID (e.g. "47858921246783@lid") — translate to real phone if known
-  const rawTo = msg.to.replace(/\D/g, '');
-  const phone = lidToPhone[rawTo] || rawTo;
+  let phone = msg.to.replace(/\D/g, '');
+  try {
+    const contact = await msg.getContact();
+    if (contact.id?.user) phone = contact.id.user.replace(/\D/g, '');
+  } catch (_) {}
 
   const body = msg.body?.trim();
-  if (!body || !conversations[phone]) {
-    console.log(`🔍 DEBUG outgoing msg ignored — rawTo: ${rawTo}, mapped phone: ${phone}, has convo: ${!!conversations[phone]}, body: "${body}"`);
-    return;
-  }
-
-  console.log(`🟢 AGENT REPLY captured for ${phone}: "${body}"`);
+  if (!body || !conversations[phone]) return;
 
   conversations[phone].messages.push({ role: 'agent', text: body, time: nowIST() });
   conversations[phone].lastActivity = new Date();
@@ -193,24 +183,7 @@ async function triggerSummarize(phone) {
   }
 }
 
-function startClient() {
-  client.initialize().catch((err) => {
-    console.error('❌ WhatsApp initialize failed:', err.message);
-    clientStatus = 'init_failed';
-    console.log('🔄 Retrying WhatsApp initialization in 15 seconds...');
-    setTimeout(startClient, 15000);
-  });
-}
-
-// Catch any unhandled errors so the whole server doesn't crash
-process.on('unhandledRejection', (err) => {
-  console.error('⚠️  Unhandled rejection (server stays alive):', err?.message || err);
-});
-process.on('uncaughtException', (err) => {
-  console.error('⚠️  Uncaught exception (server stays alive):', err?.message || err);
-});
-
-startClient();
+client.initialize();
 
 module.exports = {
   getQR: () => currentQR,
