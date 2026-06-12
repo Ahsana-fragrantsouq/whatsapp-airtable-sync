@@ -11,11 +11,13 @@ const TABLE_NAME = process.env.AIRTABLE_TABLE_NAME || 'Lead table';
  * Maps to the exact field names visible in Fragrant Souq's Airtable base.
  */
 async function saveToAirtable({ name, phone, email, summary, fullConversation, leadStatus, interest }) {
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD only
+
   const fields = {
     'Summery of last conversation': summary,
     'Lead Source':                  'Whatsapp',
-    'Last communicated date':       new Date().toISOString(),
-    'Lead created date':            new Date().toISOString(),
+    'Last communicated date':       today,
+    'Lead created date':            today,
   };
 
   // Only add these if Claude extracted them (they may not always be present)
