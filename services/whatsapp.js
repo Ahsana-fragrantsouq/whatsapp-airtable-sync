@@ -6,7 +6,7 @@ const { saveToAirtable } = require('./airtable');
 let currentQR = null;
 let clientStatus = 'initializing';
 const conversations = {};
-const INACTIVITY_MINUTES = parseInt(process.env.INACTIVITY_MINUTES || '15');
+const INACTIVITY_MINUTES = parseInt(process.env.INACTIVITY_MINUTES || '2');
 
 // Returns current time as a readable IST string (e.g. "12/06/2026, 7:22:42 pm")
 function nowIST() {
