@@ -61,31 +61,29 @@ client.on('message', async (msg) => {
   if (msg.from === 'status@broadcast') return;
   if (msg.isStatus) return;
 
-  const phone = msg.from.replace(/\D/g, ''); // digits only, works for @c.us and @lid
   const body = msg.body?.trim();
   if (!body) return;
 
+  // Try to resolve the REAL phone number (msg.from may be a LID, not the real number)
+  let phone = msg.from.replace(/\D/g, '');
+  let contactName = null;
+  try {
+    const contact = await msg.getContact();
+    if (contact.id?.user) phone = contact.id.user.replace(/\D/g, '');
+    contactName = contact.pushname || contact.name || null;
+  } catch (_) {}
+
   if (!conversations[phone]) {
     conversations[phone] = {
-      contact: { phone, name: null, email: null },
+      contact: { phone, name: contactName, email: null },
       messages: [],
       lastActivity: null,
       timer: null,
       saved: false,
     };
-    try {
-      const contact = await msg.getContact();
-      conversations[phone].contact.name = contact.pushname || contact.name || null;
-
-      // Debug: log all available identifiers to find the real phone number
-      console.log(`🔍 DEBUG contact info:`, JSON.stringify({
-        id_user: contact.id?.user,
-        number: contact.number,
-        pushname: contact.pushname,
-        name: contact.name,
-        isMyContact: contact.isMyContact,
-      }, null, 2));
-    } catch (_) {}
+  }
+  if (contactName && !conversations[phone].contact.name) {
+    conversations[phone].contact.name = contactName;
   }
 
   const convo = conversations[phone];
@@ -109,7 +107,12 @@ client.on('message_create', async (msg) => {
   if (!msg.fromMe) return;
   if (msg.to === 'status@broadcast') return;
 
-  const phone = msg.to.replace(/\D/g, ''); // digits only, works for @c.us and @lid
+  let phone = msg.to.replace(/\D/g, '');
+  try {
+    const contact = await msg.getContact();
+    if (contact.id?.user) phone = contact.id.user.replace(/\D/g, '');
+  } catch (_) {}
+
   const body = msg.body?.trim();
   if (!body || !conversations[phone]) return;
 
