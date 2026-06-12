@@ -61,7 +61,7 @@ client.on('message', async (msg) => {
   if (msg.from === 'status@broadcast') return;
   if (msg.isStatus) return;
 
-  const phone = msg.from.replace('@c.us', '');
+  const phone = msg.from.replace(/\D/g, ''); // digits only, works for @c.us and @lid
   const body = msg.body?.trim();
   if (!body) return;
 
@@ -100,7 +100,7 @@ client.on('message_create', async (msg) => {
   if (!msg.fromMe) return;
   if (msg.to === 'status@broadcast') return;
 
-  const phone = msg.to.replace('@c.us', '');
+  const phone = msg.to.replace(/\D/g, ''); // digits only, works for @c.us and @lid
   const body = msg.body?.trim();
   if (!body || !conversations[phone]) return;
 
