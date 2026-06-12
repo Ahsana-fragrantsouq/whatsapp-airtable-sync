@@ -6,7 +6,8 @@ const { saveToAirtable } = require('./airtable');
 let currentQR = null;
 let clientStatus = 'initializing';
 const conversations = {};
-const INACTIVITY_MINUTES = parseInt(process.env.INACTIVITY_MINUTES || '5');
+const lidToPhone = {}; // maps LID-style id (e.g. from msg.to on outgoing) -> real phone number
+const INACTIVITY_MINUTES = parseInt(process.env.INACTIVITY_MINUTES || '30');
 
 // Returns current time as a readable IST string (e.g. "12/06/2026, 7:22:42 pm")
 function nowIST() {
@@ -74,7 +75,12 @@ client.on('message', async (msg) => {
   let contactName = null;
   try {
     const contact = await msg.getContact();
-    if (contact.id?.user) phone = contact.id.user.replace(/\D/g, '');
+    if (contact.id?.user) {
+      const realPhone = contact.id.user.replace(/\D/g, '');
+      // Remember: this LID (msg.from) maps to this real phone number
+      if (phone !== realPhone) lidToPhone[phone] = realPhone;
+      phone = realPhone;
+    }
     contactName = contact.pushname || contact.name || null;
   } catch (_) {}
 
@@ -112,14 +118,17 @@ client.on('message_create', async (msg) => {
   if (!msg.fromMe) return;
   if (msg.to === 'status@broadcast') return;
 
-  let phone = msg.to.replace(/\D/g, '');
-  try {
-    const contact = await msg.getContact();
-    if (contact.id?.user) phone = contact.id.user.replace(/\D/g, '');
-  } catch (_) {}
+  // msg.to may be a LID (e.g. "47858921246783@lid") — translate to real phone if known
+  const rawTo = msg.to.replace(/\D/g, '');
+  const phone = lidToPhone[rawTo] || rawTo;
 
   const body = msg.body?.trim();
-  if (!body || !conversations[phone]) return;
+  if (!body || !conversations[phone]) {
+    console.log(`🔍 DEBUG outgoing msg ignored — rawTo: ${rawTo}, mapped phone: ${phone}, has convo: ${!!conversations[phone]}, body: "${body}"`);
+    return;
+  }
+
+  console.log(`🟢 AGENT REPLY captured for ${phone}: "${body}"`);
 
   conversations[phone].messages.push({ role: 'agent', text: body, time: nowIST() });
   conversations[phone].lastActivity = new Date();
