@@ -56,7 +56,7 @@ async function saveToAirtable({ name, phone, email, summary, fullConversation, l
     'Customers':                     [customerId],   // linked record field expects an array of IDs
   };
 
-  if (interest) fields['Interest'] = interest;
+  // Note: 'Interest' field removed — not present in Lead table
 
   // Step 3 — create the lead record
   await base(LEAD_TABLE).create(fields);

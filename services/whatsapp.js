@@ -76,6 +76,15 @@ client.on('message', async (msg) => {
     try {
       const contact = await msg.getContact();
       conversations[phone].contact.name = contact.pushname || contact.name || null;
+
+      // Debug: log all available identifiers to find the real phone number
+      console.log(`🔍 DEBUG contact info:`, JSON.stringify({
+        id_user: contact.id?.user,
+        number: contact.number,
+        pushname: contact.pushname,
+        name: contact.name,
+        isMyContact: contact.isMyContact,
+      }, null, 2));
     } catch (_) {}
   }
 
