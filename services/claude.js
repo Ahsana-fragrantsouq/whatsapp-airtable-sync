@@ -10,7 +10,9 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
  * - Main interest / topic
  */
 async function summarizeWithClaude(transcript, existingContact = {}) {
-  const prompt = `You are a sales assistant. Analyze this WhatsApp Business conversation and extract lead information.
+  const prompt = `You are a sales assistant. Analyze this WhatsApp Business conversation between a customer (👤 Customer) and the business agent (🟢 Agent), and extract lead information.
+
+IMPORTANT: The summary must reflect the ENTIRE conversation — both what the customer said/asked AND what the agent replied (prices, delivery terms, availability, address confirmation, payment method, etc). Do not summarize only the customer's side.
 
 CONVERSATION:
 ${transcript}
@@ -22,7 +24,7 @@ Extract and return ONLY valid JSON (no markdown, no explanation) in this exact f
 {
   "name": "Full name of the customer (or null if not mentioned)",
   "email": "Email address (or null if not mentioned)",
-  "summary": "2-3 sentence summary of the conversation",
+  "summary": "4-5 sentence summary of the FULL conversation — include what the customer asked AND how the agent (🟢 Agent) responded, including any prices quoted, delivery details, payment method, address, or commitments made by either side",
   "interest": "Main product/service/topic the customer is interested in",
   "leadStatus": "hot | warm | cold | not_a_lead",
   "leadStatusReason": "One sentence explaining the lead status"
@@ -36,7 +38,7 @@ leadStatus rules:
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 500,
+    max_tokens: 700,
     messages: [{ role: 'user', content: prompt }],
   });
 
