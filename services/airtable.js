@@ -12,7 +12,7 @@ const TABLE_NAME = process.env.AIRTABLE_TABLE_NAME || 'Lead table';
  */
 async function saveToAirtable({ name, phone, email, summary, fullConversation, leadStatus, interest }) {
   const fields = {
-    'Summary of last conversation': summary,
+    'Summery of last conversation': summary,
     'Lead Source':                  'Whatsapp',
     'Last communicated date':       new Date().toISOString(),
     'Lead created date':            new Date().toISOString(),
