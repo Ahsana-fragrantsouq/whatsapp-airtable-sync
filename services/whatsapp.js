@@ -1,5 +1,7 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
+const fs = require('fs');
+const path = require('path');
 const { summarizeWithClaude } = require('./claude');
 const { saveToAirtable } = require('./airtable');
 
@@ -17,7 +19,7 @@ function nowIST() {
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth' }),
   puppeteer: {
-    headless: true,
+    headless: 'new',
     protocolTimeout: 180000, // 3 minutes — Render can be slow to launch Chrome
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     args: [
@@ -26,8 +28,6 @@ const client = new Client({
       '--disable-dev-shm-usage',
       '--disable-accelerated-2d-canvas',
       '--no-first-run',
-      '--no-zygote',
-      '--single-process',
       '--disable-gpu',
       '--disable-extensions',
       '--disable-component-extensions-with-background-pages',
@@ -213,10 +213,35 @@ async function triggerSummarize(phone) {
   }
 }
 
+// Removes Chrome's "Singleton*" lock files left behind by a crashed/timed-out browser
+function cleanupLockFiles() {
+  const sessionDir = path.join(process.cwd(), '.wwebjs_auth', 'session');
+  const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+
+  for (const file of lockFiles) {
+    const fullPath = path.join(sessionDir, file);
+    try {
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+        console.log(`🧹 Removed stale lock file: ${file}`);
+      }
+    } catch (err) {
+      console.log(`⚠️  Could not remove lock file ${file}: ${err.message}`);
+    }
+  }
+}
+
 function startClient() {
-  client.initialize().catch((err) => {
-    console.error('❌ WhatsApp initialize failed:', err.message);
+  client.initialize().catch(async (err) => {
+    console.error('❌ WhatsApp initialize failed:', err?.message || err?.name || JSON.stringify(err) || 'unknown error');
     clientStatus = 'init_failed';
+
+    // Clean up before retrying — destroy any half-started browser and remove lock files
+    try {
+      await client.destroy();
+    } catch (_) {}
+    cleanupLockFiles();
+
     console.log('🔄 Retrying WhatsApp initialization in 15 seconds...');
     setTimeout(startClient, 15000);
   });
@@ -230,6 +255,7 @@ process.on('uncaughtException', (err) => {
   console.error('⚠️  Uncaught exception (server stays alive):', err?.message || err);
 });
 
+cleanupLockFiles(); // clean any stale locks from a previous crashed run
 startClient();
 
 module.exports = {
