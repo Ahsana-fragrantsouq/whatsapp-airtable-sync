@@ -18,6 +18,7 @@ const client = new Client({
   authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth' }),
   puppeteer: {
     headless: true,
+    protocolTimeout: 180000, // 3 minutes — Render can be slow to launch Chrome
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     args: [
       '--no-sandbox',
@@ -192,7 +193,24 @@ async function triggerSummarize(phone) {
   }
 }
 
-client.initialize();
+function startClient() {
+  client.initialize().catch((err) => {
+    console.error('❌ WhatsApp initialize failed:', err.message);
+    clientStatus = 'init_failed';
+    console.log('🔄 Retrying WhatsApp initialization in 15 seconds...');
+    setTimeout(startClient, 15000);
+  });
+}
+
+// Catch any unhandled errors so the whole server doesn't crash
+process.on('unhandledRejection', (err) => {
+  console.error('⚠️  Unhandled rejection (server stays alive):', err?.message || err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('⚠️  Uncaught exception (server stays alive):', err?.message || err);
+});
+
+startClient();
 
 module.exports = {
   getQR: () => currentQR,
