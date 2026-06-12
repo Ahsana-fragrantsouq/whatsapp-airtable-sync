@@ -8,6 +8,11 @@ let clientStatus = 'initializing';
 const conversations = {};
 const INACTIVITY_MINUTES = parseInt(process.env.INACTIVITY_MINUTES || '30');
 
+// Returns current time as a readable IST string (e.g. "12/06/2026, 7:22:42 pm")
+function nowIST() {
+  return new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+}
+
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth' }),
   puppeteer: {
@@ -87,7 +92,7 @@ client.on('message', async (msg) => {
   }
 
   const convo = conversations[phone];
-  convo.messages.push({ role: 'customer', text: body, time: new Date().toISOString() });
+  convo.messages.push({ role: 'customer', text: body, time: nowIST() });
   convo.lastActivity = new Date();
   convo.saved = false;
 
@@ -96,7 +101,7 @@ client.on('message', async (msg) => {
   console.log(`📱 From  : ${phone}`);
   console.log(`👤 Name  : ${convo.contact.name || 'Unknown'}`);
   console.log(`💬 Text  : ${body}`);
-  console.log(`🕐 Time  : ${new Date().toLocaleString()}`);
+  console.log(`🕐 Time  : ${nowIST()} IST`);
   console.log(`📝 Total messages in conversation: ${convo.messages.length}`);
   console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
 
@@ -116,7 +121,7 @@ client.on('message_create', async (msg) => {
   const body = msg.body?.trim();
   if (!body || !conversations[phone]) return;
 
-  conversations[phone].messages.push({ role: 'agent', text: body, time: new Date().toISOString() });
+  conversations[phone].messages.push({ role: 'agent', text: body, time: nowIST() });
   conversations[phone].lastActivity = new Date();
   resetTimer(phone);
 });
