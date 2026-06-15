@@ -8,154 +8,178 @@ const { saveToAirtable } = require('./airtable');
 let currentQR = null;
 let clientStatus = 'initializing';
 const conversations = {};
-const lidToPhone = {}; // maps LID-style id (e.g. from msg.to on outgoing) -> real phone number
+const lidToPhone = {};
 const INACTIVITY_MINUTES = parseInt(process.env.INACTIVITY_MINUTES || '30');
 
-// Returns current time as a readable IST string (e.g. "12/06/2026, 7:22:42 pm")
 function nowIST() {
   return new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 }
 
-const client = new Client({
-  authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth' }),
-  puppeteer: {
-    headless: 'new',
-    protocolTimeout: 180000, // 3 minutes — Render can be slow to launch Chrome
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--disable-gpu',
-      '--disable-extensions',
-      '--disable-component-extensions-with-background-pages',
-      '--disable-background-networking',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-breakpad',
-      '--disable-client-side-phishing-detection',
-      '--disable-default-apps',
-      '--disable-hang-monitor',
-      '--disable-ipc-flooding-protection',
-      '--disable-popup-blocking',
-      '--disable-prompt-on-repost',
-      '--disable-renderer-backgrounding',
-      '--disable-sync',
-      '--force-color-profile=srgb',
-      '--metrics-recording-only',
-      '--mute-audio',
-      '--password-store=basic',
-      '--use-mock-keychain',
-      '--js-flags=--max-old-space-size=256',
-    ],
-  },
-});
-
-client.on('qr', async (qr) => {
-  clientStatus = 'waiting_for_scan';
-  console.log('📱 QR code ready — visit /qr to scan');
-  try {
-    currentQR = await qrcode.toDataURL(qr);
-  } catch (err) {
-    console.error('QR generation error:', err);
-  }
-});
-
-client.on('ready', () => {
-  clientStatus = 'connected';
-  currentQR = null;
-  console.log('✅ WhatsApp connected!');
-});
-
-client.on('authenticated', () => {
-  clientStatus = 'authenticated';
-  console.log('🔐 WhatsApp authenticated');
-});
-
-client.on('auth_failure', (msg) => {
-  clientStatus = 'auth_failed';
-  console.error('❌ Auth failed:', msg);
-});
-
-client.on('disconnected', (reason) => {
-  clientStatus = 'disconnected';
-  console.log('⚠️  WhatsApp disconnected:', reason);
-});
-
-client.on('message', async (msg) => {
-  if (msg.from === 'status@broadcast') return;
-  if (msg.isStatus) return;
-
-  const body = msg.body?.trim();
-  if (!body) return;
-
-  // Try to resolve the REAL phone number (msg.from may be a LID, not the real number)
-  let phone = msg.from.replace(/\D/g, '');
-  let contactName = null;
-  try {
-    const contact = await msg.getContact();
-    if (contact.id?.user) {
-      const realPhone = contact.id.user.replace(/\D/g, '');
-      // Remember: this LID (msg.from) maps to this real phone number
-      if (phone !== realPhone) lidToPhone[phone] = realPhone;
-      phone = realPhone;
+// ─── Removes Chrome lock files left behind by a crashed browser ───────────────
+function cleanupLockFiles() {
+  const sessionDir = path.join(process.cwd(), '.wwebjs_auth', 'session');
+  const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+  for (const file of lockFiles) {
+    const fullPath = path.join(sessionDir, file);
+    try {
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+        console.log(`🧹 Removed stale lock file: ${file}`);
+      }
+    } catch (err) {
+      console.log(`⚠️  Could not remove lock file ${file}: ${err.message}`);
     }
-    contactName = contact.pushname || contact.name || null;
-  } catch (_) {}
-
-  if (!conversations[phone]) {
-    conversations[phone] = {
-      contact: { phone, name: contactName, email: null },
-      messages: [],
-      lastActivity: null,
-      timer: null,
-      saved: false,
-    };
   }
-  if (contactName && !conversations[phone].contact.name) {
-    conversations[phone].contact.name = contactName;
-  }
+}
 
-  const convo = conversations[phone];
-  convo.messages.push({ role: 'customer', text: body, time: nowIST() });
-  convo.lastActivity = new Date();
-  convo.saved = false;
+// ─── WhatsApp Client ──────────────────────────────────────────────────────────
+function createClient() {
+  return new Client({
+    authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth' }),
+    puppeteer: {
+      headless: 'new',
+      protocolTimeout: 180000,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--disable-gpu',
+        '--disable-extensions',
+        '--disable-component-extensions-with-background-pages',
+        '--disable-background-networking',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-breakpad',
+        '--disable-client-side-phishing-detection',
+        '--disable-default-apps',
+        '--disable-hang-monitor',
+        '--disable-ipc-flooding-protection',
+        '--disable-popup-blocking',
+        '--disable-prompt-on-repost',
+        '--disable-renderer-backgrounding',
+        '--disable-sync',
+        '--force-color-profile=srgb',
+        '--metrics-recording-only',
+        '--mute-audio',
+        '--password-store=basic',
+        '--use-mock-keychain',
+        '--js-flags=--max-old-space-size=256',
+      ],
+    },
+  });
+}
 
-  console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-  console.log(`💬 NEW MESSAGE`);
-  console.log(`📱 From  : ${phone}`);
-  console.log(`👤 Name  : ${convo.contact.name || 'Unknown'}`);
-  console.log(`💬 Text  : ${body}`);
-  console.log(`🕐 Time  : ${nowIST()} IST`);
-  console.log(`📝 Total messages in conversation: ${convo.messages.length}`);
-  console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+let client = createClient();
 
-  resetTimer(phone);
-});
+// ─── Attach all event listeners ───────────────────────────────────────────────
+function attachEvents() {
+  client.on('qr', async (qr) => {
+    clientStatus = 'waiting_for_scan';
+    console.log('📱 QR code ready — visit /qr to scan');
+    try { currentQR = await qrcode.toDataURL(qr); } catch (err) { console.error('QR error:', err); }
+  });
 
-client.on('message_create', async (msg) => {
-  if (!msg.fromMe) return;
-  if (msg.to === 'status@broadcast') return;
+  client.on('ready', () => {
+    clientStatus = 'connected';
+    currentQR = null;
+    console.log('✅ WhatsApp connected!');
+  });
 
-  // msg.to may be a LID (e.g. "47858921246783@lid") — translate to real phone if known
-  const rawTo = msg.to.replace(/\D/g, '');
-  const phone = lidToPhone[rawTo] || rawTo;
+  client.on('authenticated', () => {
+    clientStatus = 'authenticated';
+    console.log('🔐 WhatsApp authenticated');
+  });
 
-  const body = msg.body?.trim();
-  if (!body || !conversations[phone]) {
-    console.log(`🔍 DEBUG outgoing msg ignored — rawTo: ${rawTo}, mapped phone: ${phone}, has convo: ${!!conversations[phone]}, body: "${body}"`);
-    return;
-  }
+  client.on('auth_failure', (msg) => {
+    clientStatus = 'auth_failed';
+    console.error('❌ Auth failed:', msg);
+  });
 
-  console.log(`🟢 AGENT REPLY captured for ${phone}: "${body}"`);
+  // ── Auto-reconnect on disconnect ──────────────────────────────────────────
+  client.on('disconnected', async (reason) => {
+    clientStatus = 'disconnected';
+    console.log(`⚠️  WhatsApp disconnected: ${reason}`);
+    console.log('🔄 Auto-reconnecting in 10 seconds...');
+    try { await client.destroy(); } catch (_) {}
+    cleanupLockFiles();
+    setTimeout(startClient, 10000);
+  });
 
-  conversations[phone].messages.push({ role: 'agent', text: body, time: nowIST() });
-  conversations[phone].lastActivity = new Date();
-  resetTimer(phone);
-});
+  // ── Incoming messages ─────────────────────────────────────────────────────
+  client.on('message', async (msg) => {
+    if (msg.from === 'status@broadcast') return;
+    if (msg.isStatus) return;
 
+    const body = msg.body?.trim();
+    if (!body) return;
+
+    let phone = msg.from.replace(/\D/g, '');
+    let contactName = null;
+    try {
+      const contact = await msg.getContact();
+      if (contact.id?.user) {
+        const realPhone = contact.id.user.replace(/\D/g, '');
+        if (phone !== realPhone) lidToPhone[phone] = realPhone;
+        phone = realPhone;
+      }
+      contactName = contact.pushname || contact.name || null;
+    } catch (_) {}
+
+    if (!conversations[phone]) {
+      conversations[phone] = {
+        contact: { phone, name: contactName, email: null },
+        messages: [],
+        lastActivity: null,
+        timer: null,
+        saved: false,
+      };
+    }
+    if (contactName && !conversations[phone].contact.name) {
+      conversations[phone].contact.name = contactName;
+    }
+
+    const convo = conversations[phone];
+    convo.messages.push({ role: 'customer', text: body, time: nowIST() });
+    convo.lastActivity = new Date();
+    convo.saved = false;
+
+    console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`💬 NEW MESSAGE`);
+    console.log(`📱 From  : ${phone}`);
+    console.log(`👤 Name  : ${convo.contact.name || 'Unknown'}`);
+    console.log(`💬 Text  : ${body}`);
+    console.log(`🕐 Time  : ${nowIST()} IST`);
+    console.log(`📝 Total messages in conversation: ${convo.messages.length}`);
+    console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+
+    resetTimer(phone);
+  });
+
+  // ── Outgoing messages (agent replies) ────────────────────────────────────
+  client.on('message_create', async (msg) => {
+    if (!msg.fromMe) return;
+    if (msg.to === 'status@broadcast') return;
+
+    const rawTo = msg.to.replace(/\D/g, '');
+    const phone = lidToPhone[rawTo] || rawTo;
+    const body = msg.body?.trim();
+
+    if (!body || !conversations[phone]) {
+      console.log(`🔍 DEBUG outgoing ignored — rawTo: ${rawTo}, mapped: ${phone}, hasConvo: ${!!conversations[phone]}`);
+      return;
+    }
+
+    console.log(`🟢 AGENT REPLY captured for ${phone}: "${body}"`);
+    conversations[phone].messages.push({ role: 'agent', text: body, time: nowIST() });
+    conversations[phone].lastActivity = new Date();
+    resetTimer(phone);
+  });
+}
+
+// ─── Timer ────────────────────────────────────────────────────────────────────
 function resetTimer(phone) {
   const convo = conversations[phone];
   if (convo.timer) clearTimeout(convo.timer);
@@ -165,25 +189,21 @@ function resetTimer(phone) {
   }, INACTIVITY_MINUTES * 60 * 1000);
 }
 
+// ─── Summarize & Save ─────────────────────────────────────────────────────────
 async function triggerSummarize(phone) {
   const convo = conversations[phone];
   if (!convo) throw new Error(`No conversation found for ${phone}`);
   if (convo.messages.length === 0) throw new Error(`No messages for ${phone}`);
-  if (convo.saved) {
-    console.log(`ℹ️  ${phone} already saved, skipping.`);
-    return;
-  }
+  if (convo.saved) { console.log(`ℹ️  ${phone} already saved`); return; }
 
   const transcript = convo.messages
     .map((m) => `[${m.time}] ${m.role === 'agent' ? '🟢 Agent' : '👤 Customer'}: ${m.text}`)
     .join('\n');
 
-  console.log(`\n📋 FULL TRANSCRIPT FOR ${phone}:`);
-  console.log(`─────────────────────────────────`);
+  console.log(`\n📋 FULL TRANSCRIPT FOR ${phone}:\n─────────────────────────────────`);
   console.log(transcript);
   console.log(`─────────────────────────────────\n`);
 
-  // Try Claude — if it fails, still save to Airtable with basic info
   let extracted = { summary: 'Summary unavailable', interest: '', leadStatus: 'warm', name: null, email: null };
   try {
     extracted = await summarizeWithClaude(transcript, convo.contact);
@@ -213,49 +233,36 @@ async function triggerSummarize(phone) {
   }
 }
 
-// Removes Chrome's "Singleton*" lock files left behind by a crashed/timed-out browser
-function cleanupLockFiles() {
-  const sessionDir = path.join(process.cwd(), '.wwebjs_auth', 'session');
-  const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
-
-  for (const file of lockFiles) {
-    const fullPath = path.join(sessionDir, file);
-    try {
-      if (fs.existsSync(fullPath)) {
-        fs.unlinkSync(fullPath);
-        console.log(`🧹 Removed stale lock file: ${file}`);
-      }
-    } catch (err) {
-      console.log(`⚠️  Could not remove lock file ${file}: ${err.message}`);
-    }
-  }
-}
-
+// ─── Start / Restart Client ───────────────────────────────────────────────────
 function startClient() {
+  client = createClient();   // always create a fresh client instance
+  attachEvents();
   client.initialize().catch(async (err) => {
-    console.error('❌ WhatsApp initialize failed:', err?.message || err?.name || JSON.stringify(err) || 'unknown error');
+    console.error('❌ WhatsApp initialize failed:', err?.message || err?.name || 'unknown error');
     clientStatus = 'init_failed';
-
-    // Clean up before retrying — destroy any half-started browser and remove lock files
-    try {
-      await client.destroy();
-    } catch (_) {}
+    try { await client.destroy(); } catch (_) {}
     cleanupLockFiles();
-
-    console.log('🔄 Retrying WhatsApp initialization in 15 seconds...');
+    console.log('🔄 Retrying in 15 seconds...');
     setTimeout(startClient, 15000);
   });
 }
 
-// Catch any unhandled errors so the whole server doesn't crash
+// ─── Global error safety net ──────────────────────────────────────────────────
 process.on('unhandledRejection', (err) => {
-  console.error('⚠️  Unhandled rejection (server stays alive):', err?.message || err);
+  console.error('⚠️  Unhandled rejection:', err?.message || err);
 });
 process.on('uncaughtException', (err) => {
-  console.error('⚠️  Uncaught exception (server stays alive):', err?.message || err);
+  console.error('⚠️  Uncaught exception:', err?.message || err);
 });
 
-cleanupLockFiles(); // clean any stale locks from a previous crashed run
+// ─── Memory monitor (every 5 min) ────────────────────────────────────────────
+setInterval(() => {
+  const mem = process.memoryUsage();
+  console.log(`📊 Memory: RSS=${Math.round(mem.rss/1024/1024)}MB Heap=${Math.round(mem.heapUsed/1024/1024)}MB Status=${clientStatus}`);
+}, 5 * 60 * 1000);
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+cleanupLockFiles();
 startClient();
 
 module.exports = {
