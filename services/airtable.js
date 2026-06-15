@@ -35,18 +35,22 @@ async function findOrCreateCustomer(phone, name) {
 }
 
 /**
- * Find an existing Lead record for this phone number.
- * Returns the record or null.
+ * Find an existing Lead record for this customer.
+ * Searches by matching the linked Customers record ID directly.
  */
 async function findExistingLead(customerId) {
-  const existing = await base(LEAD_TABLE)
-    .select({
-      filterByFormula: `FIND("${customerId}", ARRAYJOIN({Customers}))`,
-      maxRecords: 1,
-    })
-    .firstPage();
-
-  return existing && existing.length > 0 ? existing[0] : null;
+  try {
+    const records = await base(LEAD_TABLE)
+      .select({
+        filterByFormula: `FIND("${customerId}", ARRAYJOIN(Customers, ","))`,
+        maxRecords: 1,
+      })
+      .firstPage();
+    return records && records.length > 0 ? records[0] : null;
+  } catch (err) {
+    console.log(`⚠️  findExistingLead error: ${err.message}`);
+    return null;
+  }
 }
 
 /**
@@ -76,6 +80,7 @@ async function saveToAirtable({ name, phone, email, summary, fullConversation, l
 
   // Step 2 — check if a Lead record already exists for this customer
   const existingLead = await findExistingLead(customerId);
+  console.log(`🔍 Existing lead for customer ${customerId}: ${existingLead ? existingLead.id : 'not found'}`);
 
   if (existingLead) {
     // ── UPDATE existing record ───────────────────────────────────────────────

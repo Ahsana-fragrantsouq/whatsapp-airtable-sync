@@ -56,33 +56,40 @@ function findOrCreateCustomer(phone, name) {
   });
 }
 /**
- * Find an existing Lead record for this phone number.
- * Returns the record or null.
+ * Find an existing Lead record for this customer.
+ * Searches by matching the linked Customers record ID directly.
  */
 
 
 function findExistingLead(customerId) {
-  var existing;
+  var records;
   return regeneratorRuntime.async(function findExistingLead$(_context2) {
     while (1) {
       switch (_context2.prev = _context2.next) {
         case 0:
-          _context2.next = 2;
+          _context2.prev = 0;
+          _context2.next = 3;
           return regeneratorRuntime.awrap(base(LEAD_TABLE).select({
-            filterByFormula: "FIND(\"".concat(customerId, "\", ARRAYJOIN({Customers}))"),
+            filterByFormula: "FIND(\"".concat(customerId, "\", ARRAYJOIN(Customers, \",\"))"),
             maxRecords: 1
           }).firstPage());
 
-        case 2:
-          existing = _context2.sent;
-          return _context2.abrupt("return", existing && existing.length > 0 ? existing[0] : null);
+        case 3:
+          records = _context2.sent;
+          return _context2.abrupt("return", records && records.length > 0 ? records[0] : null);
 
-        case 4:
+        case 7:
+          _context2.prev = 7;
+          _context2.t0 = _context2["catch"](0);
+          console.log("\u26A0\uFE0F  findExistingLead error: ".concat(_context2.t0.message));
+          return _context2.abrupt("return", null);
+
+        case 11:
         case "end":
           return _context2.stop();
       }
     }
-  });
+  }, null, null, [[0, 7]]);
 }
 /**
  * Format today's date as DD/MM/YYYY for the All time summary prefix.
@@ -127,9 +134,10 @@ function saveToAirtable(_ref) {
 
         case 8:
           existingLead = _context3.sent;
+          console.log("\uD83D\uDD0D Existing lead for customer ".concat(customerId, ": ").concat(existingLead ? existingLead.id : 'not found'));
 
           if (!existingLead) {
-            _context3.next = 17;
+            _context3.next = 18;
             break;
           }
 
@@ -137,20 +145,20 @@ function saveToAirtable(_ref) {
           currentAllTime = existingLead.fields['All time summary'] || ''; // Append today's summary as a new dated entry
 
           newAllTime = currentAllTime ? "".concat(currentAllTime, "\n\n[").concat(dateLabel, "] ").concat(summary) : "[".concat(dateLabel, "] ").concat(summary);
-          _context3.next = 14;
+          _context3.next = 15;
           return regeneratorRuntime.awrap(base(LEAD_TABLE).update(existingLead.id, {
             'Summery of last conversation': summary,
             'All time summary': newAllTime,
             'Last communicated date': today
           }));
 
-        case 14:
+        case 15:
           console.log("\uD83D\uDCDD Updated Lead record for ".concat(phone, " \u2014 appended to All time summary"));
-          _context3.next = 20;
+          _context3.next = 21;
           break;
 
-        case 17:
-          _context3.next = 19;
+        case 18:
+          _context3.next = 20;
           return regeneratorRuntime.awrap(base(LEAD_TABLE).create({
             'Summery of last conversation': summary,
             'All time summary': "[".concat(dateLabel, "] ").concat(summary),
@@ -160,10 +168,10 @@ function saveToAirtable(_ref) {
             'Customers': [customerId]
           }));
 
-        case 19:
+        case 20:
           console.log("\u2795 Created new Lead record for ".concat(phone));
 
-        case 20:
+        case 21:
         case "end":
           return _context3.stop();
       }
