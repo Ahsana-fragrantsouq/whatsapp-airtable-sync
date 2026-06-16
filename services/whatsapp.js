@@ -196,6 +196,11 @@ async function triggerSummarize(phone) {
   if (convo.messages.length === 0) throw new Error(`No messages for ${phone}`);
   if (convo.saved) { console.log(`ℹ️  ${phone} already saved`); return; }
 
+  // Mark as saved immediately to prevent duplicate saves
+  // (timer + manual /save could both fire before the async save completes)
+  convo.saved = true;
+  if (convo.timer) clearTimeout(convo.timer);
+
   const transcript = convo.messages
     .map((m) => `[${m.time}] ${m.role === 'agent' ? '🟢 Agent' : '👤 Customer'}: ${m.text}`)
     .join('\n');
@@ -225,10 +230,10 @@ async function triggerSummarize(phone) {
       leadStatus: extracted.leadStatus,
       interest: extracted.interest,
     });
-    convo.saved = true;
-    if (convo.timer) clearTimeout(convo.timer);
     console.log(`✅ Saved lead for ${phone} to Airtable`);
   } catch (airtableErr) {
+    // If Airtable save fails, allow retry by resetting saved flag
+    convo.saved = false;
     console.error(`❌ Airtable save failed for ${phone}:`, airtableErr.message);
   }
 }
