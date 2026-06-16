@@ -57,39 +57,40 @@ function findOrCreateCustomer(phone, name) {
 }
 /**
  * Find an existing Lead record for this customer.
- * Searches by matching the linked Customers record ID directly.
+ * Searches via the "Name (from Customers)" lookup field which contains the phone.
  */
 
 
-function findExistingLead(customerId) {
-  var records;
+function findExistingLead(phone) {
+  var formattedPhone, records;
   return regeneratorRuntime.async(function findExistingLead$(_context2) {
     while (1) {
       switch (_context2.prev = _context2.next) {
         case 0:
-          _context2.prev = 0;
-          _context2.next = 3;
+          formattedPhone = phone.startsWith('+') ? phone : "+".concat(phone);
+          _context2.prev = 1;
+          _context2.next = 4;
           return regeneratorRuntime.awrap(base(LEAD_TABLE).select({
-            filterByFormula: "FIND(\"".concat(customerId, "\", ARRAYJOIN(Customers, \",\"))"),
+            filterByFormula: "AND(\n          {Lead Source} = \"Whatsapp\",\n          FIND(\"".concat(formattedPhone, "\", ARRAYJOIN({Name (from Customers)}, \",\"))\n        )"),
             maxRecords: 1
           }).firstPage());
 
-        case 3:
+        case 4:
           records = _context2.sent;
           return _context2.abrupt("return", records && records.length > 0 ? records[0] : null);
 
-        case 7:
-          _context2.prev = 7;
-          _context2.t0 = _context2["catch"](0);
+        case 8:
+          _context2.prev = 8;
+          _context2.t0 = _context2["catch"](1);
           console.log("\u26A0\uFE0F  findExistingLead error: ".concat(_context2.t0.message));
           return _context2.abrupt("return", null);
 
-        case 11:
+        case 12:
         case "end":
           return _context2.stop();
       }
     }
-  }, null, null, [[0, 7]]);
+  }, null, null, [[1, 8]]);
 }
 /**
  * Format today's date as DD/MM/YYYY for the All time summary prefix.
@@ -130,11 +131,11 @@ function saveToAirtable(_ref) {
         case 5:
           customerId = _context3.sent;
           _context3.next = 8;
-          return regeneratorRuntime.awrap(findExistingLead(customerId));
+          return regeneratorRuntime.awrap(findExistingLead(phone));
 
         case 8:
           existingLead = _context3.sent;
-          console.log("\uD83D\uDD0D Existing lead for customer ".concat(customerId, ": ").concat(existingLead ? existingLead.id : 'not found'));
+          console.log("\uD83D\uDD0D Existing lead for phone ".concat(phone, ": ").concat(existingLead ? existingLead.id : 'not found'));
 
           if (!existingLead) {
             _context3.next = 18;
