@@ -17,17 +17,30 @@ function nowIST() {
 
 // ─── Removes Chrome lock files left behind by a crashed browser ───────────────
 function cleanupLockFiles() {
-  const sessionDir = path.join(process.cwd(), '.wwebjs_auth', 'session');
   const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
-  for (const file of lockFiles) {
-    const fullPath = path.join(sessionDir, file);
-    try {
-      if (fs.existsSync(fullPath)) {
-        fs.unlinkSync(fullPath);
-        console.log(`🧹 Removed stale lock file: ${file}`);
+
+  const searchDirs = [
+    path.join(process.cwd(), '.wwebjs_auth', 'session'),
+    path.join(process.cwd(), '.wwebjs_auth', 'session', 'Default'),
+    path.join(process.cwd(), '.wwebjs_cache'),
+  ];
+
+  try {
+    const tmpDirs = fs.readdirSync('/tmp').filter(d => d.startsWith('puppeteer_'));
+    for (const d of tmpDirs) searchDirs.push(path.join('/tmp', d));
+  } catch (_) {}
+
+  for (const dir of searchDirs) {
+    for (const file of lockFiles) {
+      const fullPath = path.join(dir, file);
+      try {
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
+          console.log(`🧹 Removed stale lock file: ${fullPath}`);
+        }
+      } catch (err) {
+        console.log(`⚠️  Could not remove lock file ${fullPath}: ${err.message}`);
       }
-    } catch (err) {
-      console.log(`⚠️  Could not remove lock file ${file}: ${err.message}`);
     }
   }
 }
