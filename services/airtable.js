@@ -76,7 +76,7 @@ function todayLabel() {
  * - "All time summary"             → new summary appended with today's date prefix
  * - One record per customer (update if exists, create if not)
  */
-async function saveToAirtable({ name, phone, email, summary, fullConversation, leadStatus, interest }) {
+async function saveToAirtable({ name, phone, email, summary, lastSessionSummary, fullConversation, leadStatus, interest }) {
   const today     = new Date().toISOString().split('T')[0]; // YYYY-MM-DD for date fields
   const dateLabel = todayLabel();                            // DD/MM/YYYY for summary prefix
 
@@ -97,7 +97,7 @@ async function saveToAirtable({ name, phone, email, summary, fullConversation, l
       : `[${dateLabel}] ${summary}`;
 
     await base(LEAD_TABLE).update(existingLead.id, {
-      'Summery of last conversation': summary,
+      'Summery of last conversation': lastSessionSummary || summary,
       'All time summary':             newAllTime,
       'Last communicated date':       today,
     });
@@ -107,7 +107,7 @@ async function saveToAirtable({ name, phone, email, summary, fullConversation, l
   } else {
     // ── CREATE new record ────────────────────────────────────────────────────
     await base(LEAD_TABLE).create({
-      'Summery of last conversation': summary,
+      'Summery of last conversation': lastSessionSummary || summary,
       'All time summary':             `[${dateLabel}] ${summary}`,
       'Last communicated date':       today,
       'Lead created date':            today,

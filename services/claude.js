@@ -25,6 +25,7 @@ Extract and return ONLY valid JSON (no markdown, no explanation) in this exact f
   "name": "Full name of the customer (or null if not mentioned)",
   "email": "Email address (or null if not mentioned)",
   "summary": "4-5 sentence summary of the FULL conversation — include what the customer asked AND how the agent (🟢 Agent) responded, including any prices quoted, delivery details, payment method, address, or commitments made by either side",
+  "lastSessionSummary": "2-3 sentence summary of ONLY the most recent session (the last topic/exchange) — what the customer asked last and how the agent responded, including price, payment method, and any outcome",
   "interest": "Main product/service/topic the customer is interested in",
   "leadStatus": "hot | warm | cold | not_a_lead",
   "leadStatusReason": "One sentence explaining the lead status"
@@ -38,7 +39,7 @@ leadStatus rules:
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 700,
+    max_tokens: 900,
     messages: [{ role: 'user', content: prompt }],
   });
 

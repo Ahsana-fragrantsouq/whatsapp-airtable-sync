@@ -226,6 +226,7 @@ async function triggerSummarize(phone) {
       phone,
       email: convo.contact.email || '',
       summary: extracted.summary,
+      lastSessionSummary: extracted.lastSessionSummary || extracted.summary,
       fullConversation: transcript,
       leadStatus: extracted.leadStatus,
       interest: extracted.interest,

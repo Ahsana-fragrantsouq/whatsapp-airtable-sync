@@ -114,12 +114,12 @@ function todayLabel() {
 
 
 function saveToAirtable(_ref) {
-  var name, phone, email, summary, fullConversation, leadStatus, interest, today, dateLabel, customerId, existingLead, currentAllTime, newAllTime;
+  var name, phone, email, summary, lastSessionSummary, fullConversation, leadStatus, interest, today, dateLabel, customerId, existingLead, currentAllTime, newAllTime;
   return regeneratorRuntime.async(function saveToAirtable$(_context3) {
     while (1) {
       switch (_context3.prev = _context3.next) {
         case 0:
-          name = _ref.name, phone = _ref.phone, email = _ref.email, summary = _ref.summary, fullConversation = _ref.fullConversation, leadStatus = _ref.leadStatus, interest = _ref.interest;
+          name = _ref.name, phone = _ref.phone, email = _ref.email, summary = _ref.summary, lastSessionSummary = _ref.lastSessionSummary, fullConversation = _ref.fullConversation, leadStatus = _ref.leadStatus, interest = _ref.interest;
           today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD for date fields
 
           dateLabel = todayLabel(); // DD/MM/YYYY for summary prefix
@@ -148,7 +148,7 @@ function saveToAirtable(_ref) {
           newAllTime = currentAllTime ? "".concat(currentAllTime, "\n\n[").concat(dateLabel, "] ").concat(summary) : "[".concat(dateLabel, "] ").concat(summary);
           _context3.next = 15;
           return regeneratorRuntime.awrap(base(LEAD_TABLE).update(existingLead.id, {
-            'Summery of last conversation': summary,
+            'Summery of last conversation': lastSessionSummary || summary,
             'All time summary': newAllTime,
             'Last communicated date': today
           }));
@@ -161,7 +161,7 @@ function saveToAirtable(_ref) {
         case 18:
           _context3.next = 20;
           return regeneratorRuntime.awrap(base(LEAD_TABLE).create({
-            'Summery of last conversation': summary,
+            'Summery of last conversation': lastSessionSummary || summary,
             'All time summary': "[".concat(dateLabel, "] ").concat(summary),
             'Last communicated date': today,
             'Lead created date': today,
