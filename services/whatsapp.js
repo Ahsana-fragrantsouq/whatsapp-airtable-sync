@@ -2,8 +2,22 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 const { summarizeWithClaude } = require('./claude');
 const { saveToAirtable } = require('./airtable');
+
+// ─── Force-delete ALL Singleton lock files before anything else runs ──────────
+try {
+  const result = execSync('find /app/.wwebjs_auth -name "Singleton*" 2>/dev/null || true').toString().trim();
+  if (result) {
+    execSync('find /app/.wwebjs_auth -name "Singleton*" -delete 2>/dev/null || true');
+    console.log(`🧹 Force-deleted lock files:\n${result}`);
+  } else {
+    console.log('🧹 No lock files found on boot');
+  }
+} catch (err) {
+  console.log(`⚠️  Lock cleanup error: ${err.message}`);
+}
 
 let currentQR = null;
 let clientStatus = 'initializing';
@@ -17,18 +31,11 @@ function nowIST() {
 
 // ─── Removes Chrome lock files left behind by a crashed browser ───────────────
 function cleanupLockFiles() {
-  const sessionDir = path.join(process.cwd(), '.wwebjs_auth', 'session');
-  const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
-  for (const file of lockFiles) {
-    const fullPath = path.join(sessionDir, file);
-    try {
-      if (fs.existsSync(fullPath)) {
-        fs.unlinkSync(fullPath);
-        console.log(`🧹 Removed stale lock file: ${file}`);
-      }
-    } catch (err) {
-      console.log(`⚠️  Could not remove lock file ${file}: ${err.message}`);
-    }
+  try {
+    execSync('find /app/.wwebjs_auth -name "Singleton*" -delete 2>/dev/null || true');
+    console.log('🧹 cleanupLockFiles: done');
+  } catch (err) {
+    console.log(`⚠️  cleanupLockFiles error: ${err.message}`);
   }
 }
 
@@ -196,8 +203,6 @@ async function triggerSummarize(phone) {
   if (convo.messages.length === 0) throw new Error(`No messages for ${phone}`);
   if (convo.saved) { console.log(`ℹ️  ${phone} already saved`); return; }
 
-  // Mark as saved immediately to prevent duplicate saves
-  // (timer + manual /save could both fire before the async save completes)
   convo.saved = true;
   if (convo.timer) clearTimeout(convo.timer);
 
@@ -232,7 +237,6 @@ async function triggerSummarize(phone) {
     });
     console.log(`✅ Saved lead for ${phone} to Airtable`);
   } catch (airtableErr) {
-    // If Airtable save fails, allow retry by resetting saved flag
     convo.saved = false;
     console.error(`❌ Airtable save failed for ${phone}:`, airtableErr.message);
   }
@@ -240,7 +244,7 @@ async function triggerSummarize(phone) {
 
 // ─── Start / Restart Client ───────────────────────────────────────────────────
 function startClient() {
-  client = createClient();   // always create a fresh client instance
+  client = createClient();
   attachEvents();
   client.initialize().catch(async (err) => {
     console.error('❌ WhatsApp initialize failed:', err?.message || err?.name || 'unknown error');
@@ -267,7 +271,6 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
-cleanupLockFiles();
 startClient();
 
 module.exports = {
