@@ -73,7 +73,16 @@ function createClient() {
         '--mute-audio',
         '--password-store=basic',
         '--use-mock-keychain',
-        '--js-flags=--max-old-space-size=256',
+        // ── Memory reduction flags ──────────────────────────────────────────
+        '--single-process',
+        '--renderer-process-limit=1',
+        '--disable-features=site-per-process',
+        '--js-flags=--max-old-space-size=128',
+        '--disable-shared-workers',
+        '--disable-translate',
+        '--safebrowsing-disable-auto-update',
+        '--disable-logging',
+        '--log-level=3',
       ],
     },
   });
