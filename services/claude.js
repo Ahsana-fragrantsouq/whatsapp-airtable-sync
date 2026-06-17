@@ -5,14 +5,12 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 /**
  * Send a WhatsApp transcript to Claude and extract:
  * - Lead name, email
- * - Chat summary
+ * - sessionSummary (this session only — used for both fields)
  * - Lead status
  * - Main interest / topic
  */
 async function summarizeWithClaude(transcript, existingContact = {}) {
   const prompt = `You are a sales assistant. Analyze this WhatsApp Business conversation between a customer (👤 Customer) and the business agent (🟢 Agent), and extract lead information.
-
-IMPORTANT: The summary must reflect the ENTIRE conversation — both what the customer said/asked AND what the agent replied (prices, delivery terms, availability, address confirmation, payment method, etc). Do not summarize only the customer's side.
 
 CONVERSATION:
 ${transcript}
@@ -24,8 +22,7 @@ Extract and return ONLY valid JSON (no markdown, no explanation) in this exact f
 {
   "name": "Full name of the customer (or null if not mentioned)",
   "email": "Email address (or null if not mentioned)",
-  "summary": "4-5 sentence summary of the FULL conversation — include what the customer asked AND how the agent (🟢 Agent) responded, including any prices quoted, delivery details, payment method, address, or commitments made by either side",
-  "lastSessionSummary": "2-3 sentence summary of ONLY the most recent session (the last topic/exchange) — what the customer asked last and how the agent responded, including price, payment method, and any outcome",
+  "sessionSummary": "2-4 sentence summary of THIS conversation session only — what the customer asked, what the agent replied, prices quoted, payment method, delivery details, and any commitments made. Do not include anything outside this transcript.",
   "interest": "Main product/service/topic the customer is interested in",
   "leadStatus": "hot | warm | cold | not_a_lead",
   "leadStatusReason": "One sentence explaining the lead status"
@@ -39,15 +36,12 @@ leadStatus rules:
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 900,
+    max_tokens: 800,
     messages: [{ role: 'user', content: prompt }],
   });
 
   const text = response.content[0].text.trim();
-
-  // Strip any accidental markdown fences
   const clean = text.replace(/```json|```/g, '').trim();
-
   const parsed = JSON.parse(clean);
   return parsed;
 }

@@ -17,30 +17,17 @@ function nowIST() {
 
 // ─── Removes Chrome lock files left behind by a crashed browser ───────────────
 function cleanupLockFiles() {
+  const sessionDir = path.join(process.cwd(), '.wwebjs_auth', 'session');
   const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
-
-  const searchDirs = [
-    path.join(process.cwd(), '.wwebjs_auth', 'session'),
-    path.join(process.cwd(), '.wwebjs_auth', 'session', 'Default'),
-    path.join(process.cwd(), '.wwebjs_cache'),
-  ];
-
-  try {
-    const tmpDirs = fs.readdirSync('/tmp').filter(d => d.startsWith('puppeteer_'));
-    for (const d of tmpDirs) searchDirs.push(path.join('/tmp', d));
-  } catch (_) {}
-
-  for (const dir of searchDirs) {
-    for (const file of lockFiles) {
-      const fullPath = path.join(dir, file);
-      try {
-        if (fs.existsSync(fullPath)) {
-          fs.unlinkSync(fullPath);
-          console.log(`🧹 Removed stale lock file: ${fullPath}`);
-        }
-      } catch (err) {
-        console.log(`⚠️  Could not remove lock file ${fullPath}: ${err.message}`);
+  for (const file of lockFiles) {
+    const fullPath = path.join(sessionDir, file);
+    try {
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+        console.log(`🧹 Removed stale lock file: ${file}`);
       }
+    } catch (err) {
+      console.log(`⚠️  Could not remove lock file ${file}: ${err.message}`);
     }
   }
 }
@@ -222,7 +209,7 @@ async function triggerSummarize(phone) {
   console.log(transcript);
   console.log(`─────────────────────────────────\n`);
 
-  let extracted = { summary: 'Summary unavailable', interest: '', leadStatus: 'warm', name: null, email: null };
+  let extracted = { sessionSummary: 'Summary unavailable', interest: '', leadStatus: 'warm', name: null, email: null };
   try {
     extracted = await summarizeWithClaude(transcript, convo.contact);
     console.log(`🤖 Claude extracted:`, JSON.stringify(extracted, null, 2));
@@ -238,7 +225,7 @@ async function triggerSummarize(phone) {
       name: convo.contact.name || 'Unknown',
       phone,
       email: convo.contact.email || '',
-      summary: extracted.summary,
+      sessionSummary: extracted.sessionSummary || 'Summary unavailable',
       fullConversation: transcript,
       leadStatus: extracted.leadStatus,
       interest: extracted.interest,
