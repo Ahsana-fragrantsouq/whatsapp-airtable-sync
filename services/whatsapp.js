@@ -2,8 +2,22 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 const { summarizeWithClaude } = require('./claude');
 const { saveToAirtable } = require('./airtable');
+
+// ─── Force-delete ALL Singleton lock files before anything else runs ──────────
+try {
+  const result = execSync('find /app/.wwebjs_auth -name "Singleton*" 2>/dev/null || true').toString().trim();
+  if (result) {
+    execSync('find /app/.wwebjs_auth -name "Singleton*" -delete 2>/dev/null || true');
+    console.log(`🧹 Force-deleted lock files:\n${result}`);
+  } else {
+    console.log('🧹 No lock files found on boot');
+  }
+} catch (err) {
+  console.log(`⚠️  Lock cleanup error: ${err.message}`);
+}
 
 let currentQR = null;
 let clientStatus = 'initializing';
@@ -17,18 +31,11 @@ function nowIST() {
 
 // ─── Removes Chrome lock files left behind by a crashed browser ───────────────
 function cleanupLockFiles() {
-  const sessionDir = path.join(process.cwd(), '.wwebjs_auth', 'session');
-  const lockFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
-  for (const file of lockFiles) {
-    const fullPath = path.join(sessionDir, file);
-    try {
-      if (fs.existsSync(fullPath)) {
-        fs.unlinkSync(fullPath);
-        console.log(`🧹 Removed stale lock file: ${file}`);
-      }
-    } catch (err) {
-      console.log(`⚠️  Could not remove lock file ${file}: ${err.message}`);
-    }
+  try {
+    execSync('find /app/.wwebjs_auth -name "Singleton*" -delete 2>/dev/null || true');
+    console.log('🧹 cleanupLockFiles: done');
+  } catch (err) {
+    console.log(`⚠️  cleanupLockFiles error: ${err.message}`);
   }
 }
 
@@ -66,7 +73,16 @@ function createClient() {
         '--mute-audio',
         '--password-store=basic',
         '--use-mock-keychain',
-        '--js-flags=--max-old-space-size=256',
+        // ── Memory reduction flags ──────────────────────────────────────────
+        '--single-process',
+        '--renderer-process-limit=1',
+        '--disable-features=site-per-process',
+        '--js-flags=--max-old-space-size=128',
+        '--disable-shared-workers',
+        '--disable-translate',
+        '--safebrowsing-disable-auto-update',
+        '--disable-logging',
+        '--log-level=3',
       ],
     },
   });
@@ -128,22 +144,7 @@ function attachEvents() {
       contactName = contact.pushname || contact.name || null;
     } catch (_) {}
 
-    // Start a fresh conversation if:
-    // 1. No existing conversation, OR
-    // 2. Previous conversation was already saved, OR
-    // 3. Last message was more than 4 hours ago (new session, different day)
-    const SESSION_GAP_HOURS = 4;
-    const isNewSession = !conversations[phone]
-      || conversations[phone].saved
-      || (conversations[phone].lastActivity
-          && (new Date() - conversations[phone].lastActivity) > SESSION_GAP_HOURS * 60 * 60 * 1000);
-
-    if (isNewSession) {
-      // Save the old conversation first if it has unsaved messages
-      if (conversations[phone] && !conversations[phone].saved && conversations[phone].messages.length > 0) {
-        console.log(`🕐 Session gap detected for ${phone} — saving previous conversation before starting new one`);
-        triggerSummarize(phone).catch(err => console.error(`❌ Auto-save on session gap failed: ${err.message}`));
-      }
+    if (!conversations[phone]) {
       conversations[phone] = {
         contact: { phone, name: contactName, email: null },
         messages: [],
@@ -211,8 +212,6 @@ async function triggerSummarize(phone) {
   if (convo.messages.length === 0) throw new Error(`No messages for ${phone}`);
   if (convo.saved) { console.log(`ℹ️  ${phone} already saved`); return; }
 
-  // Mark as saved immediately to prevent duplicate saves
-  // (timer + manual /save could both fire before the async save completes)
   convo.saved = true;
   if (convo.timer) clearTimeout(convo.timer);
 
@@ -224,7 +223,7 @@ async function triggerSummarize(phone) {
   console.log(transcript);
   console.log(`─────────────────────────────────\n`);
 
-  let extracted = { summary: 'Summary unavailable', interest: '', leadStatus: 'warm', name: null, email: null };
+  let extracted = { sessionSummary: 'Summary unavailable', interest: '', leadStatus: 'warm', name: null, email: null };
   try {
     extracted = await summarizeWithClaude(transcript, convo.contact);
     console.log(`🤖 Claude extracted:`, JSON.stringify(extracted, null, 2));
@@ -240,14 +239,13 @@ async function triggerSummarize(phone) {
       name: convo.contact.name || 'Unknown',
       phone,
       email: convo.contact.email || '',
-      summary: extracted.summary,
+      sessionSummary: extracted.sessionSummary || 'Summary unavailable',
       fullConversation: transcript,
       leadStatus: extracted.leadStatus,
       interest: extracted.interest,
     });
     console.log(`✅ Saved lead for ${phone} to Airtable`);
   } catch (airtableErr) {
-    // If Airtable save fails, allow retry by resetting saved flag
     convo.saved = false;
     console.error(`❌ Airtable save failed for ${phone}:`, airtableErr.message);
   }
@@ -255,7 +253,7 @@ async function triggerSummarize(phone) {
 
 // ─── Start / Restart Client ───────────────────────────────────────────────────
 function startClient() {
-  client = createClient();   // always create a fresh client instance
+  client = createClient();
   attachEvents();
   client.initialize().catch(async (err) => {
     console.error('❌ WhatsApp initialize failed:', err?.message || err?.name || 'unknown error');
@@ -275,30 +273,6 @@ process.on('uncaughtException', (err) => {
   console.error('⚠️  Uncaught exception:', err?.message || err);
 });
 
-// ─── Save all conversations on shutdown (SIGTERM from Render) ────────────────
-async function saveAllBeforeExit() {
-  const activeConvos = Object.entries(conversations).filter(
-    ([, c]) => !c.saved && c.messages.length > 0
-  );
-
-  if (activeConvos.length === 0) {
-    console.log('🛑 Shutdown: no unsaved conversations.');
-    process.exit(0);
-  }
-
-  console.log(`🛑 Shutdown detected — saving ${activeConvos.length} active conversation(s) to Airtable...`);
-
-  await Promise.allSettled(
-    activeConvos.map(([phone]) => triggerSummarize(phone))
-  );
-
-  console.log('✅ All conversations saved. Exiting.');
-  process.exit(0);
-}
-
-process.on('SIGTERM', saveAllBeforeExit);
-process.on('SIGINT',  saveAllBeforeExit);
-
 // ─── Memory monitor (every 5 min) ────────────────────────────────────────────
 setInterval(() => {
   const mem = process.memoryUsage();
@@ -306,7 +280,6 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
-cleanupLockFiles();
 startClient();
 
 module.exports = {
