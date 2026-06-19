@@ -76,7 +76,7 @@ app.post('/save/:phone', async (req, res) => {
 // POST /backfill                     -> backfills ALL history (risk of duplicates with live data)
 // POST /backfill?before=2026-06-18   -> only backfills sessions that ended before this date
 let backfillRunning = false;
-app.post('/backfill', async (req, res) => {
+app.all('/backfill', async (req, res) => {
   if (backfillRunning) {
     return res.status(409).json({ success: false, error: 'Backfill is already running. Check logs for progress.' });
   }

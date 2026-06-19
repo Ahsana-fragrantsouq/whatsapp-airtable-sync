@@ -107,7 +107,7 @@ app.post('/save/:phone', function _callee(req, res) {
 // POST /backfill?before=2026-06-18   -> only backfills sessions that ended before this date
 
 var backfillRunning = false;
-app.post('/backfill', function _callee2(req, res) {
+app.all('/backfill', function _callee2(req, res) {
   var beforeDate;
   return regeneratorRuntime.async(function _callee2$(_context2) {
     while (1) {
