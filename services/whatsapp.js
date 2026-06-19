@@ -5,6 +5,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 const { summarizeWithClaude } = require('./claude');
 const { saveToAirtable } = require('./airtable');
+const { backfillAllChats } = require('./backfill');
 
 // ─── Force-delete ALL Singleton lock files before anything else runs ──────────
 try {
@@ -287,4 +288,5 @@ module.exports = {
   getStatus: () => clientStatus,
   getConversations: () => conversations,
   triggerSummarize,
+  runBackfill: (beforeDate) => backfillAllChats(client, beforeDate),
 };

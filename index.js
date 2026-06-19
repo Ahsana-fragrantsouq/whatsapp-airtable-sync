@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const { getQR, getStatus, triggerSummarize, getConversations } = require('./services/whatsapp');
+const { getQR, getStatus, triggerSummarize, getConversations, runBackfill } = require('./services/whatsapp');
 
 const app = express();
 app.use(express.json());
@@ -70,6 +70,31 @@ app.post('/save/:phone', async (req, res) => {
     console.error(err);
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// ─── One-Time Backfill of Historical WhatsApp Chats ───────────────────────────
+// POST /backfill                     -> backfills ALL history (risk of duplicates with live data)
+// POST /backfill?before=2026-06-18   -> only backfills sessions that ended before this date
+let backfillRunning = false;
+app.post('/backfill', async (req, res) => {
+  if (backfillRunning) {
+    return res.status(409).json({ success: false, error: 'Backfill is already running. Check logs for progress.' });
+  }
+  const beforeDate = req.query.before ? new Date(req.query.before) : null;
+  if (req.query.before && isNaN(beforeDate.getTime())) {
+    return res.status(400).json({ success: false, error: 'Invalid "before" date. Use format YYYY-MM-DD.' });
+  }
+
+  res.json({
+    success: true,
+    message: 'Backfill started in the background. Watch Render logs for progress.',
+    cutoff: beforeDate ? beforeDate.toISOString() : 'none (processing all history)',
+  });
+
+  backfillRunning = true;
+  runBackfill(beforeDate)
+    .catch((err) => console.error(`❌ Backfill crashed: ${err.message}`))
+    .finally(() => { backfillRunning = false; });
 });
 
 // ─── Start Server ──────────────────────────────────────────────────────────────

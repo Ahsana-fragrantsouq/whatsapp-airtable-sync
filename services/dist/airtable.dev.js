@@ -93,52 +93,55 @@ function findExistingLead(phone) {
   }, null, null, [[1, 8]]);
 }
 /**
- * Format today's date as DD/MM/YYYY for the All time summary prefix.
+ * Format a given date as DD/MM/YYYY for the All time summary prefix.
  */
 
 
-function todayLabel() {
-  var d = new Date();
-  var day = String(d.getDate()).padStart(2, '0');
-  var month = String(d.getMonth() + 1).padStart(2, '0');
-  var year = d.getFullYear();
+function formatLabel(date) {
+  var day = String(date.getDate()).padStart(2, '0');
+  var month = String(date.getMonth() + 1).padStart(2, '0');
+  var year = date.getFullYear();
   return "".concat(day, "/").concat(month, "/").concat(year);
 }
 /**
  * Save or update a WhatsApp lead in the Lead table.
  *
  * - "Summery of last conversation" → always replaced with the latest summary
- * - "All time summary"             → new summary appended with today's date prefix
+ * - "All time summary"             → new summary appended with date prefix
  * - One record per customer (update if exists, create if not)
+ *
+ * sessionDate (optional) — pass a Date object when backfilling historical
+ * conversations so the entry is dated correctly instead of "today".
  */
 
 
 function saveToAirtable(_ref) {
-  var name, phone, email, sessionSummary, fullConversation, leadStatus, interest, today, dateLabel, customerId, existingLead, currentAllTime, newAllTime;
+  var name, phone, email, sessionSummary, fullConversation, leadStatus, interest, sessionDate, effectiveDate, today, dateLabel, customerId, existingLead, currentAllTime, newAllTime;
   return regeneratorRuntime.async(function saveToAirtable$(_context3) {
     while (1) {
       switch (_context3.prev = _context3.next) {
         case 0:
-          name = _ref.name, phone = _ref.phone, email = _ref.email, sessionSummary = _ref.sessionSummary, fullConversation = _ref.fullConversation, leadStatus = _ref.leadStatus, interest = _ref.interest;
-          today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD for date fields
+          name = _ref.name, phone = _ref.phone, email = _ref.email, sessionSummary = _ref.sessionSummary, fullConversation = _ref.fullConversation, leadStatus = _ref.leadStatus, interest = _ref.interest, sessionDate = _ref.sessionDate;
+          effectiveDate = sessionDate instanceof Date ? sessionDate : new Date();
+          today = effectiveDate.toISOString().split('T')[0]; // YYYY-MM-DD for date fields
 
-          dateLabel = todayLabel(); // DD/MM/YYYY for summary prefix
+          dateLabel = formatLabel(effectiveDate); // DD/MM/YYYY for summary prefix
           // Step 1 — find or create customer record
 
-          _context3.next = 5;
+          _context3.next = 6;
           return regeneratorRuntime.awrap(findOrCreateCustomer(phone, name));
 
-        case 5:
+        case 6:
           customerId = _context3.sent;
-          _context3.next = 8;
+          _context3.next = 9;
           return regeneratorRuntime.awrap(findExistingLead(phone));
 
-        case 8:
+        case 9:
           existingLead = _context3.sent;
           console.log("\uD83D\uDD0D Existing lead for phone ".concat(phone, ": ").concat(existingLead ? existingLead.id : 'not found'));
 
           if (!existingLead) {
-            _context3.next = 18;
+            _context3.next = 19;
             break;
           }
 
@@ -146,20 +149,20 @@ function saveToAirtable(_ref) {
           currentAllTime = existingLead.fields['All time summary'] || ''; // Append today's summary as a new dated entry
 
           newAllTime = currentAllTime ? "".concat(currentAllTime, "\n\n[").concat(dateLabel, "] ").concat(sessionSummary) : "[".concat(dateLabel, "] ").concat(sessionSummary);
-          _context3.next = 15;
+          _context3.next = 16;
           return regeneratorRuntime.awrap(base(LEAD_TABLE).update(existingLead.id, {
             'Summery of last conversation': sessionSummary,
             'All time summary': newAllTime,
             'Last communicated date': today
           }));
 
-        case 15:
+        case 16:
           console.log("\uD83D\uDCDD Updated Lead record for ".concat(phone, " \u2014 appended to All time summary"));
-          _context3.next = 21;
+          _context3.next = 22;
           break;
 
-        case 18:
-          _context3.next = 20;
+        case 19:
+          _context3.next = 21;
           return regeneratorRuntime.awrap(base(LEAD_TABLE).create({
             'Summery of last conversation': sessionSummary,
             'All time summary': "[".concat(dateLabel, "] ").concat(sessionSummary),
@@ -169,10 +172,10 @@ function saveToAirtable(_ref) {
             'Customers': [customerId]
           }));
 
-        case 20:
+        case 21:
           console.log("\u2795 Created new Lead record for ".concat(phone));
 
-        case 21:
+        case 22:
         case "end":
           return _context3.stop();
       }

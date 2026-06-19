@@ -59,13 +59,12 @@ async function findExistingLead(phone) {
 }
 
 /**
- * Format today's date as DD/MM/YYYY for the All time summary prefix.
+ * Format a given date as DD/MM/YYYY for the All time summary prefix.
  */
-function todayLabel() {
-  const d = new Date();
-  const day   = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year  = d.getFullYear();
+function formatLabel(date) {
+  const day   = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year  = date.getFullYear();
   return `${day}/${month}/${year}`;
 }
 
@@ -73,12 +72,16 @@ function todayLabel() {
  * Save or update a WhatsApp lead in the Lead table.
  *
  * - "Summery of last conversation" → always replaced with the latest summary
- * - "All time summary"             → new summary appended with today's date prefix
+ * - "All time summary"             → new summary appended with date prefix
  * - One record per customer (update if exists, create if not)
+ *
+ * sessionDate (optional) — pass a Date object when backfilling historical
+ * conversations so the entry is dated correctly instead of "today".
  */
-async function saveToAirtable({ name, phone, email, sessionSummary, fullConversation, leadStatus, interest }) {
-  const today     = new Date().toISOString().split('T')[0]; // YYYY-MM-DD for date fields
-  const dateLabel = todayLabel();                            // DD/MM/YYYY for summary prefix
+async function saveToAirtable({ name, phone, email, sessionSummary, fullConversation, leadStatus, interest, sessionDate }) {
+  const effectiveDate = sessionDate instanceof Date ? sessionDate : new Date();
+  const today     = effectiveDate.toISOString().split('T')[0]; // YYYY-MM-DD for date fields
+  const dateLabel = formatLabel(effectiveDate);                 // DD/MM/YYYY for summary prefix
 
   // Step 1 — find or create customer record
   const customerId = await findOrCreateCustomer(phone, name);
