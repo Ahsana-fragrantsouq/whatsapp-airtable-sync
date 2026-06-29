@@ -56,12 +56,34 @@ function createClient() {
         '--no-first-run',
         '--disable-gpu',
         '--disable-extensions',
+        '--disable-component-extensions-with-background-pages',
         '--disable-background-networking',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-breakpad',
+        '--disable-client-side-phishing-detection',
         '--disable-default-apps',
+        '--disable-hang-monitor',
+        '--disable-ipc-flooding-protection',
+        '--disable-popup-blocking',
+        '--disable-prompt-on-repost',
+        '--disable-renderer-backgrounding',
         '--disable-sync',
+        '--force-color-profile=srgb',
+        '--metrics-recording-only',
         '--mute-audio',
         '--password-store=basic',
         '--use-mock-keychain',
+        // ── Memory reduction flags ──────────────────────────────────────────
+        '--single-process',
+        '--renderer-process-limit=1',
+        '--disable-features=site-per-process',
+        '--js-flags=--max-old-space-size=128',
+        '--disable-shared-workers',
+        '--disable-translate',
+        '--safebrowsing-disable-auto-update',
+        '--disable-logging',
+        '--log-level=3',
       ],
     },
   });
@@ -123,21 +145,7 @@ function attachEvents() {
       contactName = contact.pushname || contact.name || null;
     } catch (_) {}
 
-    // Start a fresh conversation if:
-    // 1. No existing conversation, OR
-    // 2. Previous conversation already saved, OR
-    // 3. Last message was more than 4 hours ago (new day/session)
-    const SESSION_GAP_HOURS = 4;
-    const isNewSession = !conversations[phone]
-      || conversations[phone].saved
-      || (conversations[phone].lastActivity
-          && (new Date() - conversations[phone].lastActivity) > SESSION_GAP_HOURS * 60 * 60 * 1000);
-
-    if (isNewSession) {
-      if (conversations[phone] && !conversations[phone].saved && conversations[phone].messages.length > 0) {
-        console.log(`🕐 Session gap for ${phone} — saving previous conversation first`);
-        triggerSummarize(phone).catch(err => console.error(`❌ Auto-save on gap failed: ${err.message}`));
-      }
+    if (!conversations[phone]) {
       conversations[phone] = {
         contact: { phone, name: contactName, email: null },
         messages: [],
@@ -203,6 +211,14 @@ async function triggerSummarize(phone) {
   const convo = conversations[phone];
   if (!convo) throw new Error(`No conversation found for ${phone}`);
   if (convo.messages.length === 0) throw new Error(`No messages for ${phone}`);
+
+  // Skip trivial conversations (e.g. single "Ok" or "Thanks" messages)
+  const totalWords = convo.messages.reduce((sum, m) => sum + m.text.split(/\s+/).length, 0);
+  if (totalWords < 5) {
+    console.log(`ℹ️  Skipping trivial conversation for ${phone} (too short)`);
+    convo.saved = true;
+    return;
+  }
   if (convo.saved) { console.log(`ℹ️  ${phone} already saved`); return; }
 
   convo.saved = true;

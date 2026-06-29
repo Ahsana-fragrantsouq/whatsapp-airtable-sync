@@ -87,11 +87,11 @@ async function findMatchingProducts(interest) {
   }
 
   // Step 2 — fall back to single most specific keyword only
-  const stopWords = ['perfume', 'eau', 'de', 'parfum', 'edp', 'edt', 'ml', 'spray', 'unisex', 'men', 'women', 'for', 'the', 'and'];
+  const stopWords = ['perfume', 'eau', 'de', 'parfum', 'edp', 'edt', 'ml', 'spray', 'unisex', 'men', 'women', 'for', 'the', 'and', 'collection', 'edition', 'limited', 'special', 'new', 'classic', 'original', 'intense', 'pure', 'gold', 'black', 'white', 'blue', 'red', 'pink', 'mini', 'set', 'gift'];
   const keywords = interest
     .toLowerCase()
     .split(/\s+/)
-    .filter(w => w.length > 3 && !stopWords.includes(w))
+    .filter(w => w.length > 4 && !stopWords.includes(w))
     .sort((a, b) => b.length - a.length); // longest = most specific first
 
   if (keywords.length === 0) return [];

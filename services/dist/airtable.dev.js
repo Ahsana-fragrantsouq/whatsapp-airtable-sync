@@ -150,9 +150,9 @@ function findMatchingProducts(interest) {
 
         case 14:
           // Step 2 — fall back to single most specific keyword only
-          stopWords = ['perfume', 'eau', 'de', 'parfum', 'edp', 'edt', 'ml', 'spray', 'unisex', 'men', 'women', 'for', 'the', 'and'];
+          stopWords = ['perfume', 'eau', 'de', 'parfum', 'edp', 'edt', 'ml', 'spray', 'unisex', 'men', 'women', 'for', 'the', 'and', 'collection', 'edition', 'limited', 'special', 'new', 'classic', 'original', 'intense', 'pure', 'gold', 'black', 'white', 'blue', 'red', 'pink', 'mini', 'set', 'gift'];
           keywords = interest.toLowerCase().split(/\s+/).filter(function (w) {
-            return w.length > 3 && !stopWords.includes(w);
+            return w.length > 4 && !stopWords.includes(w);
           }).sort(function (a, b) {
             return b.length - a.length;
           }); // longest = most specific first

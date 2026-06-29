@@ -105,6 +105,18 @@ async function backfillAllChats(client, beforeDate = null) {
 
       if (sessions.length === 0) continue;
 
+      // Filter out trivial sessions (single short messages like "Ok", "Yes", "Thanks")
+      const trivialWords = ['ok', 'okay', 'yes', 'no', 'thanks', 'thank you', 'sure', 'fine', 'noted', 'k', 'hi', 'hello', 'bye'];
+      sessions = sessions.filter(session => {
+        if (session.length < 2) {
+          const text = session[0]?.text?.toLowerCase().trim();
+          if (trivialWords.includes(text)) return false;
+        }
+        // Also skip if total word count across all messages is under 10
+        const totalWords = session.reduce((sum, m) => sum + m.text.split(/\s+/).length, 0);
+        return totalWords >= 5;
+      });
+
       console.log(`\n📞 ${phone} (${contactName || 'Unknown'}): ${sessions.length} historical session(s) to backfill`);
       totalChatsProcessed++;
 
