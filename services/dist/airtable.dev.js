@@ -96,13 +96,14 @@ function findExistingLead(phone) {
 /**
  * Find matching product records in French Inventories using fuzzy search.
  * Searches "Product Name" field only.
+ * Step 1: full phrase match (most accurate)
+ * Step 2: single best keyword fallback (if no phrase match)
  * Returns array of matching record IDs (up to 3 matches).
  */
 
 
 function findMatchingProducts(interest) {
-  var stopWords, keywords, matchedIds, _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, keyword, results, _iteratorNormalCompletion2, _didIteratorError2, _iteratorError2, _iterator2, _step2, r;
-
+  var phraseResults, stopWords, keywords, bestKeyword, results;
   return regeneratorRuntime.async(function findMatchingProducts$(_context3) {
     while (1) {
       switch (_context3.prev = _context3.next) {
@@ -115,147 +116,97 @@ function findMatchingProducts(interest) {
           return _context3.abrupt("return", []);
 
         case 2:
-          stopWords = ['perfume', 'eau', 'de', 'parfum', 'edp', 'edt', 'ml', 'spray', 'unisex', 'men', 'women', 'for'];
-          keywords = interest.toLowerCase().split(/\s+/).filter(function (w) {
-            return w.length > 2 && !stopWords.includes(w);
+          _context3.prev = 2;
+          _context3.next = 5;
+          return regeneratorRuntime.awrap(base(INVENTORY_TABLE).select({
+            filterByFormula: "FIND(LOWER(\"".concat(interest.toLowerCase(), "\"), LOWER({Product Name}))"),
+            maxRecords: 3,
+            fields: ['Product Name', 'SKU']
+          }).firstPage());
+
+        case 5:
+          phraseResults = _context3.sent;
+
+          if (!(phraseResults && phraseResults.length > 0)) {
+            _context3.next = 9;
+            break;
+          }
+
+          phraseResults.forEach(function (r) {
+            return console.log("\uD83D\uDD0E Matched product: ".concat(r.fields['Product Name']));
           });
+          return _context3.abrupt("return", phraseResults.map(function (r) {
+            return r.id;
+          }).slice(0, 3));
+
+        case 9:
+          _context3.next = 14;
+          break;
+
+        case 11:
+          _context3.prev = 11;
+          _context3.t0 = _context3["catch"](2);
+          console.log("\u26A0\uFE0F  Full phrase search error: ".concat(_context3.t0.message));
+
+        case 14:
+          // Step 2 — fall back to single most specific keyword only
+          stopWords = ['perfume', 'eau', 'de', 'parfum', 'edp', 'edt', 'ml', 'spray', 'unisex', 'men', 'women', 'for', 'the', 'and'];
+          keywords = interest.toLowerCase().split(/\s+/).filter(function (w) {
+            return w.length > 3 && !stopWords.includes(w);
+          }).sort(function (a, b) {
+            return b.length - a.length;
+          }); // longest = most specific first
 
           if (!(keywords.length === 0)) {
-            _context3.next = 6;
+            _context3.next = 18;
             break;
           }
 
           return _context3.abrupt("return", []);
 
-        case 6:
-          matchedIds = [];
-          _iteratorNormalCompletion = true;
-          _didIteratorError = false;
-          _iteratorError = undefined;
-          _context3.prev = 10;
-          _iterator = keywords.slice(0, 3)[Symbol.iterator]();
-
-        case 12:
-          if (_iteratorNormalCompletion = (_step = _iterator.next()).done) {
-            _context3.next = 45;
-            break;
-          }
-
-          keyword = _step.value;
-          _context3.prev = 14;
-          _context3.next = 17;
+        case 18:
+          bestKeyword = keywords[0];
+          _context3.prev = 19;
+          _context3.next = 22;
           return regeneratorRuntime.awrap(base(INVENTORY_TABLE).select({
-            filterByFormula: "FIND(LOWER(\"".concat(keyword, "\"), LOWER({Product Name}))"),
+            filterByFormula: "FIND(LOWER(\"".concat(bestKeyword, "\"), LOWER({Product Name}))"),
             maxRecords: 3,
             fields: ['Product Name', 'SKU']
           }).firstPage());
 
-        case 17:
+        case 22:
           results = _context3.sent;
-          _iteratorNormalCompletion2 = true;
-          _didIteratorError2 = false;
-          _iteratorError2 = undefined;
-          _context3.prev = 21;
 
-          for (_iterator2 = results[Symbol.iterator](); !(_iteratorNormalCompletion2 = (_step2 = _iterator2.next()).done); _iteratorNormalCompletion2 = true) {
-            r = _step2.value;
-
-            if (!matchedIds.includes(r.id)) {
-              matchedIds.push(r.id);
-              console.log("\uD83D\uDD0E Matched product: ".concat(r.fields['Product Name']));
-            }
+          if (!(results && results.length > 0)) {
+            _context3.next = 26;
+            break;
           }
 
-          _context3.next = 29;
+          results.forEach(function (r) {
+            return console.log("\uD83D\uDD0E Matched product (keyword \"".concat(bestKeyword, "\"): ").concat(r.fields['Product Name']));
+          });
+          return _context3.abrupt("return", results.map(function (r) {
+            return r.id;
+          }).slice(0, 3));
+
+        case 26:
+          _context3.next = 31;
           break;
 
-        case 25:
-          _context3.prev = 25;
-          _context3.t0 = _context3["catch"](21);
-          _didIteratorError2 = true;
-          _iteratorError2 = _context3.t0;
+        case 28:
+          _context3.prev = 28;
+          _context3.t1 = _context3["catch"](19);
+          console.log("\u26A0\uFE0F  Keyword search error for \"".concat(bestKeyword, "\": ").concat(_context3.t1.message));
 
-        case 29:
-          _context3.prev = 29;
-          _context3.prev = 30;
-
-          if (!_iteratorNormalCompletion2 && _iterator2["return"] != null) {
-            _iterator2["return"]();
-          }
+        case 31:
+          return _context3.abrupt("return", []);
 
         case 32:
-          _context3.prev = 32;
-
-          if (!_didIteratorError2) {
-            _context3.next = 35;
-            break;
-          }
-
-          throw _iteratorError2;
-
-        case 35:
-          return _context3.finish(32);
-
-        case 36:
-          return _context3.finish(29);
-
-        case 37:
-          _context3.next = 42;
-          break;
-
-        case 39:
-          _context3.prev = 39;
-          _context3.t1 = _context3["catch"](14);
-          console.log("\u26A0\uFE0F  Product search error for \"".concat(keyword, "\": ").concat(_context3.t1.message));
-
-        case 42:
-          _iteratorNormalCompletion = true;
-          _context3.next = 12;
-          break;
-
-        case 45:
-          _context3.next = 51;
-          break;
-
-        case 47:
-          _context3.prev = 47;
-          _context3.t2 = _context3["catch"](10);
-          _didIteratorError = true;
-          _iteratorError = _context3.t2;
-
-        case 51:
-          _context3.prev = 51;
-          _context3.prev = 52;
-
-          if (!_iteratorNormalCompletion && _iterator["return"] != null) {
-            _iterator["return"]();
-          }
-
-        case 54:
-          _context3.prev = 54;
-
-          if (!_didIteratorError) {
-            _context3.next = 57;
-            break;
-          }
-
-          throw _iteratorError;
-
-        case 57:
-          return _context3.finish(54);
-
-        case 58:
-          return _context3.finish(51);
-
-        case 59:
-          return _context3.abrupt("return", matchedIds.slice(0, 3));
-
-        case 60:
         case "end":
           return _context3.stop();
       }
     }
-  }, null, null, [[10, 47, 51, 59], [14, 39], [21, 25, 29, 37], [30,, 32, 36], [52,, 54, 58]]);
+  }, null, null, [[2, 11], [19, 28]]);
 }
 /**
  * Format a given date as DD/MM/YYYY for the All time summary prefix.

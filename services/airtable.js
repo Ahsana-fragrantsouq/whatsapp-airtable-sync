@@ -61,43 +61,60 @@ async function findExistingLead(phone) {
 /**
  * Find matching product records in French Inventories using fuzzy search.
  * Searches "Product Name" field only.
+ * Step 1: full phrase match (most accurate)
+ * Step 2: single best keyword fallback (if no phrase match)
  * Returns array of matching record IDs (up to 3 matches).
  */
 async function findMatchingProducts(interest) {
   if (!interest || interest === 'Unknown') return [];
 
-  const stopWords = ['perfume', 'eau', 'de', 'parfum', 'edp', 'edt', 'ml', 'spray', 'unisex', 'men', 'women', 'for'];
+  // Step 1 — try full phrase search first (most accurate)
+  try {
+    const phraseResults = await base(INVENTORY_TABLE)
+      .select({
+        filterByFormula: `FIND(LOWER("${interest.toLowerCase()}"), LOWER({Product Name}))`,
+        maxRecords: 3,
+        fields: ['Product Name', 'SKU'],
+      })
+      .firstPage();
+
+    if (phraseResults && phraseResults.length > 0) {
+      phraseResults.forEach(r => console.log(`🔎 Matched product: ${r.fields['Product Name']}`));
+      return phraseResults.map(r => r.id).slice(0, 3);
+    }
+  } catch (err) {
+    console.log(`⚠️  Full phrase search error: ${err.message}`);
+  }
+
+  // Step 2 — fall back to single most specific keyword only
+  const stopWords = ['perfume', 'eau', 'de', 'parfum', 'edp', 'edt', 'ml', 'spray', 'unisex', 'men', 'women', 'for', 'the', 'and'];
   const keywords = interest
     .toLowerCase()
     .split(/\s+/)
-    .filter(w => w.length > 2 && !stopWords.includes(w));
+    .filter(w => w.length > 3 && !stopWords.includes(w))
+    .sort((a, b) => b.length - a.length); // longest = most specific first
 
   if (keywords.length === 0) return [];
 
-  const matchedIds = [];
+  const bestKeyword = keywords[0];
+  try {
+    const results = await base(INVENTORY_TABLE)
+      .select({
+        filterByFormula: `FIND(LOWER("${bestKeyword}"), LOWER({Product Name}))`,
+        maxRecords: 3,
+        fields: ['Product Name', 'SKU'],
+      })
+      .firstPage();
 
-  for (const keyword of keywords.slice(0, 3)) {
-    try {
-      const results = await base(INVENTORY_TABLE)
-        .select({
-          filterByFormula: `FIND(LOWER("${keyword}"), LOWER({Product Name}))`,
-          maxRecords: 3,
-          fields: ['Product Name', 'SKU'],
-        })
-        .firstPage();
-
-      for (const r of results) {
-        if (!matchedIds.includes(r.id)) {
-          matchedIds.push(r.id);
-          console.log(`🔎 Matched product: ${r.fields['Product Name']}`);
-        }
-      }
-    } catch (err) {
-      console.log(`⚠️  Product search error for "${keyword}": ${err.message}`);
+    if (results && results.length > 0) {
+      results.forEach(r => console.log(`🔎 Matched product (keyword "${bestKeyword}"): ${r.fields['Product Name']}`));
+      return results.map(r => r.id).slice(0, 3);
     }
+  } catch (err) {
+    console.log(`⚠️  Keyword search error for "${bestKeyword}": ${err.message}`);
   }
 
-  return matchedIds.slice(0, 3);
+  return [];
 }
 
 /**
