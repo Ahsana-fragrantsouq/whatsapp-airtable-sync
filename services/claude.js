@@ -23,7 +23,7 @@ Extract and return ONLY valid JSON (no markdown, no explanation) in this exact f
   "name": "Full name of the customer (or null if not mentioned)",
   "email": "Email address (or null if not mentioned)",
   "sessionSummary": "2-4 sentence summary of THIS conversation session only — what the customer asked, what the agent replied, prices quoted, payment method, delivery details, and any commitments made. Do not include anything outside this transcript.",
-  "interest": "Main product/service/topic the customer is interested in",
+  "interest": "The exact product name the customer mentioned (e.g. 'Burberry Brit Splash', 'Arabian Oud Madhawi'). If multiple products, use the most recently discussed one. If no specific product was mentioned, write 'Unknown'",
   "leadStatus": "hot | warm | cold | not_a_lead",
   "leadStatusReason": "One sentence explaining the lead status"
 }
