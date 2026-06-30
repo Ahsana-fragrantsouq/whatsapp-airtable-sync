@@ -70,6 +70,18 @@ async function backfillAllChats(client, beforeDate = null) {
         return;
       }
       console.log(`⚠️  getChats attempt ${attempt}/5 failed (${err.message}), retrying in 8s...`);
+
+      // After 2 failed attempts, try reloading the WhatsApp Web page itself
+      if (attempt === 2 && client.pupPage) {
+        try {
+          console.log('🔄 Reloading WhatsApp Web page to recover detached frame...');
+          await client.pupPage.reload({ waitUntil: 'networkidle2', timeout: 60000 });
+          await new Promise((r) => setTimeout(r, 5000)); // let it settle
+        } catch (reloadErr) {
+          console.log(`⚠️  Page reload failed: ${reloadErr.message}`);
+        }
+      }
+
       await new Promise((r) => setTimeout(r, 8000));
     }
   }
