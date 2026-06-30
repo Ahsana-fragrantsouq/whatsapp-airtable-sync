@@ -56,12 +56,22 @@ async function backfillAllChats(client, beforeDate = null) {
   }
   console.log('🔄 ═══════════════════════════════════════════\n');
 
+  // Wait a moment for Chrome to be fully stable before fetching chats
+  await new Promise((r) => setTimeout(r, 3000));
+
   let chats;
-  try {
-    chats = await client.getChats();
-  } catch (err) {
-    console.error(`❌ Backfill failed to get chat list: ${err.message}`);
-    return;
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    try {
+      chats = await client.getChats();
+      break;
+    } catch (err) {
+      if (attempt === 5) {
+        console.error(`❌ Backfill failed to get chat list after 5 attempts: ${err.message}`);
+        return;
+      }
+      console.log(`⚠️  getChats attempt ${attempt}/5 failed (${err.message}), retrying in 8s...`);
+      await new Promise((r) => setTimeout(r, 8000));
+    }
   }
 
   const individualChats = chats.filter((c) => !c.isGroup);
