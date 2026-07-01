@@ -276,34 +276,25 @@ process.on('uncaughtException', (err) => {
   console.error('⚠️  Uncaught exception:', err?.message || err);
 });
 
-// ─── Health check — auto-recover if message events stop firing ───────────────
+// ─── Health check — verify Chrome page is alive every 30 min ─────────────────
 let lastMessageReceivedAt = Date.now();
 
-// Update timestamp whenever a real message arrives
-const _originalExport_updateLastMessage = () => { lastMessageReceivedAt = Date.now(); };
-
 setInterval(async () => {
-  const minutesSinceLastMessage = (Date.now() - lastMessageReceivedAt) / 1000 / 60;
-
-  // Only check if WhatsApp claims to be connected
   if (clientStatus !== 'connected') return;
 
-  // If connected but no message for over 3 hours AND we've been running for >30 min,
-  // verify the page is actually alive by evaluating a simple expression
-  if (minutesSinceLastMessage > 180) {
-    try {
-      await client.pupPage.evaluate(() => true);
-      // Page is alive — silence is just no customer messages, which is fine
-    } catch (err) {
-      console.log(`⚠️  Health check failed — page unresponsive after ${Math.round(minutesSinceLastMessage)}min silence: ${err.message}`);
-      console.log('🔄 Auto-restarting WhatsApp to recover message reception...');
-      clientStatus = 'disconnected';
-      try { await client.destroy(); } catch (_) {}
-      cleanupLockFiles();
-      setTimeout(startClient, 5000);
-    }
+  try {
+    await client.pupPage.evaluate(() => true);
+    // Page is alive and healthy
+  } catch (err) {
+    const minutesSinceLastMessage = Math.round((Date.now() - lastMessageReceivedAt) / 1000 / 60);
+    console.log(`⚠️  Health check failed — page unresponsive (last message ${minutesSinceLastMessage}min ago): ${err.message}`);
+    console.log('🔄 Auto-restarting WhatsApp to recover message reception...');
+    clientStatus = 'disconnected';
+    try { await client.destroy(); } catch (_) {}
+    cleanupLockFiles();
+    setTimeout(startClient, 5000);
   }
-}, 5 * 60 * 1000);
+}, 30 * 60 * 1000); // check every 30 minutes
 
 // ─── Memory monitor (every 5 min) ────────────────────────────────────────────
 setInterval(() => {
