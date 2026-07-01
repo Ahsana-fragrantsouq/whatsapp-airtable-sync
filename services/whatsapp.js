@@ -163,6 +163,8 @@ function attachEvents() {
     convo.lastActivity = new Date();
     convo.saved = false;
 
+    lastMessageReceivedAt = Date.now(); // update health check timestamp
+
     console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     console.log(`💬 NEW MESSAGE`);
     console.log(`📱 From  : ${phone}`);
@@ -211,14 +213,6 @@ async function triggerSummarize(phone) {
   const convo = conversations[phone];
   if (!convo) throw new Error(`No conversation found for ${phone}`);
   if (convo.messages.length === 0) throw new Error(`No messages for ${phone}`);
-
-  // Skip trivial conversations (e.g. single "Ok" or "Thanks" messages)
-  const totalWords = convo.messages.reduce((sum, m) => sum + m.text.split(/\s+/).length, 0);
-  if (totalWords < 5) {
-    console.log(`ℹ️  Skipping trivial conversation for ${phone} (too short)`);
-    convo.saved = true;
-    return;
-  }
   if (convo.saved) { console.log(`ℹ️  ${phone} already saved`); return; }
 
   convo.saved = true;
@@ -281,6 +275,35 @@ process.on('unhandledRejection', (err) => {
 process.on('uncaughtException', (err) => {
   console.error('⚠️  Uncaught exception:', err?.message || err);
 });
+
+// ─── Health check — auto-recover if message events stop firing ───────────────
+let lastMessageReceivedAt = Date.now();
+
+// Update timestamp whenever a real message arrives
+const _originalExport_updateLastMessage = () => { lastMessageReceivedAt = Date.now(); };
+
+setInterval(async () => {
+  const minutesSinceLastMessage = (Date.now() - lastMessageReceivedAt) / 1000 / 60;
+
+  // Only check if WhatsApp claims to be connected
+  if (clientStatus !== 'connected') return;
+
+  // If connected but no message for over 3 hours AND we've been running for >30 min,
+  // verify the page is actually alive by evaluating a simple expression
+  if (minutesSinceLastMessage > 180) {
+    try {
+      await client.pupPage.evaluate(() => true);
+      // Page is alive — silence is just no customer messages, which is fine
+    } catch (err) {
+      console.log(`⚠️  Health check failed — page unresponsive after ${Math.round(minutesSinceLastMessage)}min silence: ${err.message}`);
+      console.log('🔄 Auto-restarting WhatsApp to recover message reception...');
+      clientStatus = 'disconnected';
+      try { await client.destroy(); } catch (_) {}
+      cleanupLockFiles();
+      setTimeout(startClient, 5000);
+    }
+  }
+}, 5 * 60 * 1000);
 
 // ─── Memory monitor (every 5 min) ────────────────────────────────────────────
 setInterval(() => {
