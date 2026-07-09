@@ -163,8 +163,6 @@ function attachEvents() {
     convo.lastActivity = new Date();
     convo.saved = false;
 
-    lastMessageReceivedAt = Date.now(); // update health check timestamp
-
     console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     console.log(`💬 NEW MESSAGE`);
     console.log(`📱 From  : ${phone}`);
@@ -278,31 +276,33 @@ process.on('uncaughtException', (err) => {
 
 // ─── Health check — verify Chrome page is alive every 30 min ─────────────────
 let lastMessageReceivedAt = Date.now();
+let healthCheckFailCount = 0;
 
 setInterval(async () => {
-  if (clientStatus !== 'connected') return;
-
+  if (clientStatus !== 'connected') {
+    healthCheckFailCount = 0;
+    return;
+  }
   try {
     await client.pupPage.evaluate(() => true);
-    // Page is alive and healthy
+    healthCheckFailCount = 0; // page alive
   } catch (err) {
-    const minutesSinceLastMessage = Math.round((Date.now() - lastMessageReceivedAt) / 1000 / 60);
-    console.log(`⚠️  Health check failed — page unresponsive (last message ${minutesSinceLastMessage}min ago): ${err.message}`);
-    console.log('🔄 Auto-restarting WhatsApp to recover message reception...');
-    clientStatus = 'disconnected';
-    try { await client.destroy(); } catch (_) {}
-    cleanupLockFiles();
-
-    // Also clear the full session to prevent reloading a corrupted state
-    try {
-      const { execSync } = require('child_process');
-      execSync('rm -rf /app/.wwebjs_auth/session 2>/dev/null || true');
-      console.log('🧹 Cleared session files to force fresh login');
-    } catch (_) {}
-
-    setTimeout(startClient, 5000);
+    healthCheckFailCount++;
+    const mins = Math.round((Date.now() - lastMessageReceivedAt) / 1000 / 60);
+    console.log(`⚠️  Health check failed (${healthCheckFailCount}/2) — page unresponsive (last message ${mins}min ago): ${err.message}`);
+    if (healthCheckFailCount >= 2) {
+      healthCheckFailCount = 0;
+      console.log('🔄 Auto-restarting WhatsApp (keeping session — no QR needed)...');
+      clientStatus = 'disconnected';
+      try { await client.destroy(); } catch (_) {}
+      cleanupLockFiles();
+      // Session is NEVER deleted — WhatsApp auto-reconnects without QR scan
+      setTimeout(startClient, 5000);
+    } else {
+      console.log('⏳ Waiting for next check before taking action...');
+    }
   }
-}, 30 * 60 * 1000); // check every 30 minutes
+}, 30 * 60 * 1000);
 
 // ─── Memory monitor (every 5 min) ────────────────────────────────────────────
 setInterval(() => {
@@ -318,5 +318,5 @@ module.exports = {
   getStatus: () => clientStatus,
   getConversations: () => conversations,
   triggerSummarize,
-  runBackfill: (beforeDate) => backfillAllChats(client, beforeDate),
+  runBackfill: (beforeDate, afterDate) => backfillAllChats(client, beforeDate, afterDate),
 };

@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const { getQR, getStatus, triggerSummarize, getConversations, runBackfill } = require('./services/whatsapp');
+const { getQR, getStatus, triggerSummarize, getConversations } = require('./services/whatsapp');
 
 const app = express();
 app.use(express.json());
@@ -72,27 +72,33 @@ app.post('/save/:phone', async (req, res) => {
   }
 });
 
-// ─── One-Time Backfill of Historical WhatsApp Chats ───────────────────────────
-// POST /backfill                     -> backfills ALL history (risk of duplicates with live data)
-// POST /backfill?before=2026-06-18   -> only backfills sessions that ended before this date
+// ─── Backfill Historical WhatsApp Chats ───────────────────────────────────────
+const { backfillAllChats } = require('./services/backfill');
 let backfillRunning = false;
+
+// GET /backfill                          → all history
+// GET /backfill?after=2026-07-02         → last week
+// GET /backfill?after=2026-06-09         → last month
+// GET /backfill?after=X&before=Y         → specific range
 app.all('/backfill', async (req, res) => {
   if (backfillRunning) {
-    return res.status(409).json({ success: false, error: 'Backfill is already running. Check logs for progress.' });
+    return res.json({ success: false, error: 'Backfill already running. Check logs for progress.' });
   }
   const beforeDate = req.query.before ? new Date(req.query.before) : null;
-  if (req.query.before && isNaN(beforeDate.getTime())) {
-    return res.status(400).json({ success: false, error: 'Invalid "before" date. Use format YYYY-MM-DD.' });
-  }
+  const afterDate  = req.query.after  ? new Date(req.query.after)  : null;
+  if (req.query.before && isNaN(beforeDate?.getTime())) return res.status(400).json({ error: 'Invalid before date' });
+  if (req.query.after  && isNaN(afterDate?.getTime()))  return res.status(400).json({ error: 'Invalid after date' });
 
   res.json({
     success: true,
-    message: 'Backfill started in the background. Watch Render logs for progress.',
-    cutoff: beforeDate ? beforeDate.toISOString() : 'none (processing all history)',
+    message: 'Backfill started. Watch Render logs for progress.',
+    after:  afterDate  ? afterDate.toISOString()  : 'none',
+    before: beforeDate ? beforeDate.toISOString() : 'none',
   });
 
   backfillRunning = true;
-  runBackfill(beforeDate)
+  const { runBackfill } = require('./services/whatsapp');
+  runBackfill(beforeDate, afterDate)
     .catch((err) => console.error(`❌ Backfill crashed: ${err.message}`))
     .finally(() => { backfillRunning = false; });
 });

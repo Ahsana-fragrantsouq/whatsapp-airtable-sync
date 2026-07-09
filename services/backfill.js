@@ -46,44 +46,20 @@ function groupIntoSessions(messages) {
  *   this date. Pass null to backfill everything (risk of duplicating
  *   conversations already captured live).
  */
-async function backfillAllChats(client, beforeDate = null) {
+async function backfillAllChats(client, beforeDate = null, afterDate = null) {
   console.log('\n🔄 ═══════════════════════════════════════════');
   console.log('🔄 BACKFILL STARTED');
-  if (beforeDate) {
-    console.log(`🔄 Only processing sessions before: ${beforeDate.toISOString()}`);
-  } else {
-    console.log(`🔄 No cutoff date — processing ALL history (risk of duplicates with live data)`);
-  }
+  if (afterDate)  console.log(`🔄 Only processing sessions after:  ${afterDate.toISOString()}`);
+  if (beforeDate) console.log(`🔄 Only processing sessions before: ${beforeDate.toISOString()}`);
+  if (!beforeDate && !afterDate) console.log(`🔄 No date filter — processing ALL history (risk of duplicates with live data)`);
   console.log('🔄 ═══════════════════════════════════════════\n');
 
-  // Wait a moment for Chrome to be fully stable before fetching chats
-  await new Promise((r) => setTimeout(r, 3000));
-
   let chats;
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    try {
-      chats = await client.getChats();
-      break;
-    } catch (err) {
-      if (attempt === 5) {
-        console.error(`❌ Backfill failed to get chat list after 5 attempts: ${err.message}`);
-        return;
-      }
-      console.log(`⚠️  getChats attempt ${attempt}/5 failed (${err.message}), retrying in 8s...`);
-
-      // After 2 failed attempts, try reloading the WhatsApp Web page itself
-      if (attempt === 2 && client.pupPage) {
-        try {
-          console.log('🔄 Reloading WhatsApp Web page to recover detached frame...');
-          await client.pupPage.reload({ waitUntil: 'networkidle2', timeout: 60000 });
-          await new Promise((r) => setTimeout(r, 5000)); // let it settle
-        } catch (reloadErr) {
-          console.log(`⚠️  Page reload failed: ${reloadErr.message}`);
-        }
-      }
-
-      await new Promise((r) => setTimeout(r, 8000));
-    }
+  try {
+    chats = await client.getChats();
+  } catch (err) {
+    console.error(`❌ Backfill failed to get chat list: ${err.message}`);
+    return;
   }
 
   const individualChats = chats.filter((c) => !c.isGroup);
@@ -94,7 +70,7 @@ async function backfillAllChats(client, beforeDate = null) {
 
   for (const chat of individualChats) {
     try {
-      const rawMessages = await chat.fetchMessages({ limit: 2000 });
+      const rawMessages = await chat.fetchMessages({ limit: 500 });
       if (!rawMessages || rawMessages.length === 0) continue;
 
       // Resolve the real phone number (chat.id.user may be a LID)
@@ -120,24 +96,15 @@ async function backfillAllChats(client, beforeDate = null) {
 
       let sessions = groupIntoSessions(normalized);
 
-      // Apply cutoff — only keep sessions that ended before beforeDate
+      // Apply date filters
       if (beforeDate) {
         sessions = sessions.filter((s) => s[s.length - 1].timestamp < beforeDate.getTime());
       }
+      if (afterDate) {
+        sessions = sessions.filter((s) => s[s.length - 1].timestamp > afterDate.getTime());
+      }
 
       if (sessions.length === 0) continue;
-
-      // Filter out trivial sessions (single short messages like "Ok", "Yes", "Thanks")
-      const trivialWords = ['ok', 'okay', 'yes', 'no', 'thanks', 'thank you', 'sure', 'fine', 'noted', 'k', 'hi', 'hello', 'bye'];
-      sessions = sessions.filter(session => {
-        if (session.length < 2) {
-          const text = session[0]?.text?.toLowerCase().trim();
-          if (trivialWords.includes(text)) return false;
-        }
-        // Also skip if total word count across all messages is under 10
-        const totalWords = session.reduce((sum, m) => sum + m.text.split(/\s+/).length, 0);
-        return totalWords >= 5;
-      });
 
       console.log(`\n📞 ${phone} (${contactName || 'Unknown'}): ${sessions.length} historical session(s) to backfill`);
       totalChatsProcessed++;
@@ -173,9 +140,12 @@ async function backfillAllChats(client, beforeDate = null) {
           console.log(`   ❌ Airtable save failed: ${err.message}`);
         }
 
-        // Gentle pacing to avoid hammering Claude/Airtable rate limits
-        await new Promise((r) => setTimeout(r, 800));
+        // Longer pacing to protect Chrome from overload
+        await new Promise((r) => setTimeout(r, 2000));
       }
+
+      // Pause between chats to let Chrome breathe
+      await new Promise((r) => setTimeout(r, 3000));
     } catch (err) {
       console.log(`⚠️  Error processing a chat: ${err.message}`);
     }
