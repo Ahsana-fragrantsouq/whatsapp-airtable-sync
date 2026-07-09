@@ -292,6 +292,14 @@ setInterval(async () => {
     clientStatus = 'disconnected';
     try { await client.destroy(); } catch (_) {}
     cleanupLockFiles();
+
+    // Also clear the full session to prevent reloading a corrupted state
+    try {
+      const { execSync } = require('child_process');
+      execSync('rm -rf /app/.wwebjs_auth/session 2>/dev/null || true');
+      console.log('🧹 Cleared session files to force fresh login');
+    } catch (_) {}
+
     setTimeout(startClient, 5000);
   }
 }, 30 * 60 * 1000); // check every 30 minutes
