@@ -40,6 +40,27 @@ function cleanupLockFiles() {
   }
 }
 
+// ─── Slack notification ───────────────────────────────────────────────────────
+async function notifySlack(message) {
+  try {
+    const response = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+      },
+      body: JSON.stringify({
+        channel: 'C0B9V9U312L', // #session
+        text: message,
+      }),
+    });
+    const data = await response.json();
+    if (!data.ok) console.log(`⚠️  Slack notification failed: ${data.error}`);
+  } catch (err) {
+    console.log(`⚠️  Slack notification error: ${err.message}`);
+  }
+}
+
 // ─── WhatsApp Client ──────────────────────────────────────────────────────────
 function createClient() {
   return new Client({
@@ -110,15 +131,17 @@ function attachEvents() {
     console.log('🔐 WhatsApp authenticated');
   });
 
-  client.on('auth_failure', (msg) => {
+  client.on('auth_failure', async (msg) => {
     clientStatus = 'auth_failed';
     console.error('❌ Auth failed:', msg);
+    await notifySlack(`❌ *WhatsApp Auth Failed* — QR rescan required!\nTime: ${nowIST()} IST\nVisit https://whatsapp-airtable-sync.onrender.com/qr to rescan.`);
   });
 
   // ── Auto-reconnect on disconnect ──────────────────────────────────────────
   client.on('disconnected', async (reason) => {
     clientStatus = 'disconnected';
     console.log(`⚠️  WhatsApp disconnected: ${reason}`);
+    await notifySlack(`⚠️ *WhatsApp Disconnected*\nReason: ${reason}\nTime: ${nowIST()} IST\nAuto-reconnecting in 10 seconds...`);
     console.log('🔄 Auto-reconnecting in 10 seconds...');
     try { await client.destroy(); } catch (_) {}
     cleanupLockFiles();
@@ -293,6 +316,7 @@ setInterval(async () => {
     if (healthCheckFailCount >= 2) {
       healthCheckFailCount = 0;
       console.log('🔄 Auto-restarting WhatsApp (keeping session — no QR needed)...');
+      await notifySlack(`🔄 *WhatsApp Auto-Restarting*\nChrome page became unresponsive after backfill or idle period.\nKeeping session — no QR rescan needed.\nTime: ${nowIST()} IST`);
       clientStatus = 'disconnected';
       try { await client.destroy(); } catch (_) {}
       cleanupLockFiles();
