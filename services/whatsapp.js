@@ -110,7 +110,7 @@ function createClient() {
   });
 }
 
-let client = createClient();
+let client = null;
 
 // ─── Attach all event listeners ───────────────────────────────────────────────
 function attachEvents() {
