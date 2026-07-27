@@ -129,6 +129,16 @@ function attachEvents() {
   client.on('authenticated', () => {
     clientStatus = 'authenticated';
     console.log('🔐 WhatsApp authenticated');
+
+    // If stuck in authenticated for more than 2 minutes, force restart
+    setTimeout(async () => {
+      if (clientStatus === 'authenticated') {
+        console.log('⚠️  Stuck in authenticated state — forcing restart...');
+        try { await client.destroy(); } catch (_) {}
+        cleanupLockFiles();
+        setTimeout(startClient, 5000);
+      }
+    }, 2 * 60 * 1000);
   });
 
   client.on('auth_failure', async (msg) => {
