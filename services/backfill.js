@@ -55,10 +55,36 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null) {
   console.log('🔄 ═══════════════════════════════════════════\n');
 
   let chats;
-  try {
-    chats = await client.getChats();
-  } catch (err) {
-    console.error(`❌ Backfill failed to get chat list: ${err.message}`);
+  const MAX_GETCHATS_ATTEMPTS = 4;
+  for (let attempt = 1; attempt <= MAX_GETCHATS_ATTEMPTS; attempt++) {
+    try {
+      chats = await client.getChats();
+      break; // success
+    } catch (err) {
+      const isDetachedFrame = /detached Frame|Session closed|Target closed/i.test(err.message);
+      console.error(`❌ getChats() attempt ${attempt}/${MAX_GETCHATS_ATTEMPTS} failed: ${err.message}`);
+
+      if (!isDetachedFrame || attempt === MAX_GETCHATS_ATTEMPTS) {
+        console.error(`❌ Backfill failed to get chat list — giving up.`);
+        return;
+      }
+
+      // Detached frame = WA Web did a background reload after "ready".
+      // Give it time to finish re-injecting the Store, then retry.
+      const waitMs = 8000 * attempt; // 8s, 16s, 24s
+      console.log(`⏳ Detached frame detected — waiting ${waitMs / 1000}s for WA Web to settle before retrying...`);
+      await new Promise((r) => setTimeout(r, waitMs));
+
+      try {
+        await client.pupPage.evaluate(() => document.readyState);
+      } catch (pingErr) {
+        console.log(`⚠️  Page still unresponsive after wait: ${pingErr.message}`);
+      }
+    }
+  }
+
+  if (!chats) {
+    console.error(`❌ Backfill aborted — could not obtain chat list after retries.`);
     return;
   }
 
