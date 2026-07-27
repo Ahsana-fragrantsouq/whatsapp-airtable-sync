@@ -111,6 +111,30 @@ function createClient() {
 }
 
 let client = null;
+let connectedAt = null;
+let restartInProgress = false;
+
+// ─── Safe restart (session preserved on disk, no QR scan needed) ─────────────
+async function restartClient(reason) {
+  if (restartInProgress) {
+    console.log(`⏭️  Restart already in progress — skipping duplicate trigger (${reason})`);
+    return;
+  }
+  restartInProgress = true;
+
+  console.log(`🔄 Restarting WhatsApp client (${reason}) — session preserved, no QR needed`);
+  await notifySlack(`🔄 *WhatsApp Auto-Restarting*\nReason: ${reason}\nTime: ${nowIST()} IST\nSession preserved — no QR rescan needed.`);
+
+  clientStatus = 'disconnected';
+  connectedAt = null;
+  try { await client.destroy(); } catch (_) {}
+  cleanupLockFiles();
+
+  setTimeout(() => {
+    restartInProgress = false;
+    startClient();
+  }, 5000);
+}
 
 // ─── Attach all event listeners ───────────────────────────────────────────────
 function attachEvents() {
@@ -122,6 +146,7 @@ function attachEvents() {
 
   client.on('ready', () => {
     clientStatus = 'connected';
+    connectedAt = Date.now();
     currentQR = null;
     console.log('✅ WhatsApp connected!');
   });
@@ -150,6 +175,7 @@ function attachEvents() {
   // ── Auto-reconnect on disconnect ──────────────────────────────────────────
   client.on('disconnected', async (reason) => {
     clientStatus = 'disconnected';
+    connectedAt = null;
     console.log(`⚠️  WhatsApp disconnected: ${reason}`);
     await notifySlack(`⚠️ *WhatsApp Disconnected*\nReason: ${reason}\nTime: ${nowIST()} IST\nAuto-reconnecting in 10 seconds...`);
     console.log('🔄 Auto-reconnecting in 10 seconds...');
@@ -325,13 +351,7 @@ setInterval(async () => {
     console.log(`⚠️  Health check failed (${healthCheckFailCount}/2) — page unresponsive (last message ${mins}min ago): ${err.message}`);
     if (healthCheckFailCount >= 2) {
       healthCheckFailCount = 0;
-      console.log('🔄 Auto-restarting WhatsApp (keeping session — no QR needed)...');
-      await notifySlack(`🔄 *WhatsApp Auto-Restarting*\nChrome page became unresponsive after backfill or idle period.\nKeeping session — no QR rescan needed.\nTime: ${nowIST()} IST`);
-      clientStatus = 'disconnected';
-      try { await client.destroy(); } catch (_) {}
-      cleanupLockFiles();
-      // Session is NEVER deleted — WhatsApp auto-reconnects without QR scan
-      setTimeout(startClient, 5000);
+      await restartClient('health check: page unresponsive');
     } else {
       console.log('⏳ Waiting for next check before taking action...');
     }
@@ -350,7 +370,11 @@ startClient();
 module.exports = {
   getQR: () => currentQR,
   getStatus: () => clientStatus,
+  getConnectedAt: () => connectedAt,
   getConversations: () => conversations,
   triggerSummarize,
-  runBackfill: (beforeDate, afterDate) => backfillAllChats(client, beforeDate, afterDate),
+  runBackfill: (beforeDate, afterDate) =>
+    backfillAllChats(client, beforeDate, afterDate, () =>
+      restartClient('backfill: page unresponsive (detached frame)')
+    ),
 };

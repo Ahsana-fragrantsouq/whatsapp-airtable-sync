@@ -45,8 +45,12 @@ function groupIntoSessions(messages) {
  * @param {Date|null} beforeDate - only backfill sessions that ENDED before
  *   this date. Pass null to backfill everything (risk of duplicating
  *   conversations already captured live).
+ * @param {Date|null} afterDate - only backfill sessions that ENDED after this date.
+ * @param {Function|null} onUnrecoverable - called if the WA page is confirmed
+ *   dead (not just reloading) and needs a full client restart to recover.
+ *   The restart preserves the saved session — no QR rescan required.
  */
-async function backfillAllChats(client, beforeDate = null, afterDate = null) {
+async function backfillAllChats(client, beforeDate = null, afterDate = null, onUnrecoverable = null) {
   console.log('\n🔄 ═══════════════════════════════════════════');
   console.log('🔄 BACKFILL STARTED');
   if (afterDate)  console.log(`🔄 Only processing sessions after:  ${afterDate.toISOString()}`);
@@ -55,7 +59,7 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null) {
   console.log('🔄 ═══════════════════════════════════════════\n');
 
   let chats;
-  const MAX_GETCHATS_ATTEMPTS = 4;
+  const MAX_GETCHATS_ATTEMPTS = 2; // a truly dead page won't recover no matter how many times we retry
   for (let attempt = 1; attempt <= MAX_GETCHATS_ATTEMPTS; attempt++) {
     try {
       chats = await client.getChats();
@@ -65,26 +69,22 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null) {
       console.error(`❌ getChats() attempt ${attempt}/${MAX_GETCHATS_ATTEMPTS} failed: ${err.message}`);
 
       if (!isDetachedFrame || attempt === MAX_GETCHATS_ATTEMPTS) {
-        console.error(`❌ Backfill failed to get chat list — giving up.`);
-        return;
+        console.error(`❌ Backfill failed to get chat list.`);
+        break;
       }
 
-      // Detached frame = WA Web did a background reload after "ready".
-      // Give it time to finish re-injecting the Store, then retry.
-      const waitMs = 8000 * attempt; // 8s, 16s, 24s
-      console.log(`⏳ Detached frame detected — waiting ${waitMs / 1000}s for WA Web to settle before retrying...`);
+      const waitMs = 8000 * attempt; // 8s, then 16s
+      console.log(`⏳ Detached frame detected — waiting ${waitMs / 1000}s before retrying...`);
       await new Promise((r) => setTimeout(r, waitMs));
-
-      try {
-        await client.pupPage.evaluate(() => document.readyState);
-      } catch (pingErr) {
-        console.log(`⚠️  Page still unresponsive after wait: ${pingErr.message}`);
-      }
     }
   }
 
   if (!chats) {
-    console.error(`❌ Backfill aborted — could not obtain chat list after retries.`);
+    console.error(`❌ Backfill aborted — chat list unreachable (page appears dead, not just WA reloading).`);
+    if (typeof onUnrecoverable === 'function') {
+      console.log('🔄 Triggering a safe client restart to recover (session preserved, no QR needed)...');
+      onUnrecoverable();
+    }
     return;
   }
 
