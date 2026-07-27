@@ -7,11 +7,14 @@ const { summarizeWithClaude } = require('./claude');
 const { saveToAirtable } = require('./airtable');
 const { backfillAllChats } = require('./backfill');
 
+const SESSION_DIR = '/app/.wwebjs_auth';
+const BACKUP_DIR  = '/app/.wwebjs_auth_backup';
+
 // ─── Force-delete ALL Singleton lock files before anything else runs ──────────
 try {
-  const result = execSync('find /app/.wwebjs_auth -name "Singleton*" 2>/dev/null || true').toString().trim();
+  const result = execSync(`find ${SESSION_DIR} -name "Singleton*" 2>/dev/null || true`).toString().trim();
   if (result) {
-    execSync('find /app/.wwebjs_auth -name "Singleton*" -delete 2>/dev/null || true');
+    execSync(`find ${SESSION_DIR} -name "Singleton*" -delete 2>/dev/null || true`);
     console.log(`🧹 Force-deleted lock files:\n${result}`);
   } else {
     console.log('🧹 No lock files found on boot');
@@ -22,6 +25,9 @@ try {
 
 let currentQR = null;
 let clientStatus = 'initializing';
+let connectedAt = null;
+let restartInProgress = false;
+let restoredThisBoot = false;
 const conversations = {};
 const lidToPhone = {};
 const INACTIVITY_MINUTES = parseInt(process.env.INACTIVITY_MINUTES || '30');
@@ -33,10 +39,61 @@ function nowIST() {
 // ─── Removes Chrome lock files left behind by a crashed browser ───────────────
 function cleanupLockFiles() {
   try {
-    execSync('find /app/.wwebjs_auth -name "Singleton*" -delete 2>/dev/null || true');
+    execSync(`find ${SESSION_DIR} -name "Singleton*" -delete 2>/dev/null || true`);
     console.log('🧹 cleanupLockFiles: done');
   } catch (err) {
     console.log(`⚠️  cleanupLockFiles error: ${err.message}`);
+  }
+}
+
+// ─── Force-kill any lingering Chrome process ──────────────────────────────────
+function killChromeProcesses() {
+  try {
+    execSync('pkill -9 -f "chrome" 2>/dev/null || true');
+    console.log('🔪 killChromeProcesses: done');
+  } catch (err) {
+    console.log(`⚠️  killChromeProcesses error: ${err.message}`);
+  }
+}
+
+// ─── Clean shutdown with a timeout fallback to force-kill ────────────────────
+async function safeDestroy() {
+  try {
+    await Promise.race([
+      client.destroy(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('destroy timeout')), 8000)),
+    ]);
+    console.log('🛑 Client destroyed cleanly');
+  } catch (err) {
+    console.log(`⚠️  Clean destroy failed/timed out (${err.message}) — force-killing`);
+  }
+  killChromeProcesses();
+}
+
+// ─── Session backup — protects against corruption during forced restarts ─────
+function backupSession() {
+  try {
+    if (!fs.existsSync(SESSION_DIR)) return;
+    const tmp = `${BACKUP_DIR}_tmp`;
+    execSync(`rm -rf "${tmp}" && cp -r "${SESSION_DIR}" "${tmp}" && rm -rf "${BACKUP_DIR}" && mv "${tmp}" "${BACKUP_DIR}"`);
+    console.log(`💾 Session backed up at ${nowIST()} IST`);
+  } catch (err) {
+    console.log(`⚠️  Session backup failed: ${err.message}`);
+  }
+}
+
+function restoreSessionFromBackup() {
+  try {
+    if (!fs.existsSync(BACKUP_DIR)) {
+      console.log('⚠️  No session backup available to restore');
+      return false;
+    }
+    execSync(`rm -rf "${SESSION_DIR}" && cp -r "${BACKUP_DIR}" "${SESSION_DIR}"`);
+    console.log('♻️  Session restored from last known-good backup');
+    return true;
+  } catch (err) {
+    console.log(`⚠️  Session restore failed: ${err.message}`);
+    return false;
   }
 }
 
@@ -65,6 +122,14 @@ async function notifySlack(message) {
 function createClient() {
   return new Client({
     authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth' }),
+    webVersionCache: {
+      type: 'remote',
+      // Pinned known-stable WA Web build — avoids mid-session frame breaks from
+      // WhatsApp silently pushing an incompatible bundle. Check
+      // https://github.com/wppconnect-team/wa-version for the current recommended file
+      // if this one goes stale.
+      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1023077796-alpha.html',
+    },
     puppeteer: {
       headless: 'new',
       protocolTimeout: 180000,
@@ -95,11 +160,10 @@ function createClient() {
         '--mute-audio',
         '--password-store=basic',
         '--use-mock-keychain',
-        // ── Memory reduction flags ──────────────────────────────────────────
-        '--single-process',
-        '--renderer-process-limit=1',
-        '--disable-features=site-per-process',
-        '--js-flags=--max-old-space-size=128',
+        // NOTE: --single-process removed — it was the likely cause of the
+        // detached-frame/protocol-error crashes during backfill and restarts.
+        // Standard Render plan should have enough RAM to run normally.
+        '--js-flags=--max-old-space-size=256',
         '--disable-shared-workers',
         '--disable-translate',
         '--safebrowsing-disable-auto-update',
@@ -111,11 +175,9 @@ function createClient() {
 }
 
 let client = null;
-let connectedAt = null;
-let restartInProgress = false;
 
 // ─── Safe restart (session preserved on disk, no QR scan needed) ─────────────
-async function restartClient(reason) {
+async function restartClient(reason, notify = true) {
   if (restartInProgress) {
     console.log(`⏭️  Restart already in progress — skipping duplicate trigger (${reason})`);
     return;
@@ -123,17 +185,19 @@ async function restartClient(reason) {
   restartInProgress = true;
 
   console.log(`🔄 Restarting WhatsApp client (${reason}) — session preserved, no QR needed`);
-  await notifySlack(`🔄 *WhatsApp Auto-Restarting*\nReason: ${reason}\nTime: ${nowIST()} IST\nSession preserved — no QR rescan needed.`);
+  if (notify) {
+    await notifySlack(`🔄 *WhatsApp Auto-Restarting*\nReason: ${reason}\nTime: ${nowIST()} IST\nSession preserved — no QR rescan needed.`);
+  }
 
   clientStatus = 'disconnected';
   connectedAt = null;
-  try { await client.destroy(); } catch (_) {}
+  await safeDestroy();
   cleanupLockFiles();
 
   setTimeout(() => {
     restartInProgress = false;
     startClient();
-  }, 5000);
+  }, 10000);
 }
 
 // ─── Attach all event listeners ───────────────────────────────────────────────
@@ -148,7 +212,11 @@ function attachEvents() {
     clientStatus = 'connected';
     connectedAt = Date.now();
     currentQR = null;
+    restoredThisBoot = false; // successful connect — future auth failures may try a fresh restore
     console.log('✅ WhatsApp connected!');
+
+    // Back up the working session shortly after connecting, then periodically
+    setTimeout(backupSession, 2 * 60 * 1000);
   });
 
   client.on('authenticated', () => {
@@ -159,9 +227,7 @@ function attachEvents() {
     setTimeout(async () => {
       if (clientStatus === 'authenticated') {
         console.log('⚠️  Stuck in authenticated state — forcing restart...');
-        try { await client.destroy(); } catch (_) {}
-        cleanupLockFiles();
-        setTimeout(startClient, 5000);
+        await restartClient('stuck in authenticated state');
       }
     }, 2 * 60 * 1000);
   });
@@ -169,19 +235,28 @@ function attachEvents() {
   client.on('auth_failure', async (msg) => {
     clientStatus = 'auth_failed';
     console.error('❌ Auth failed:', msg);
+
+    // One automatic recovery attempt from the last known-good backup before
+    // we give up and ask for a fresh QR scan.
+    if (!restoredThisBoot) {
+      restoredThisBoot = true;
+      const restored = restoreSessionFromBackup();
+      if (restored) {
+        console.log('🔁 Attempting reconnect using restored session backup...');
+        await safeDestroy();
+        cleanupLockFiles();
+        setTimeout(startClient, 10000);
+        return;
+      }
+    }
+
     await notifySlack(`❌ *WhatsApp Auth Failed* — QR rescan required!\nTime: ${nowIST()} IST\nVisit https://whatsapp-airtable-sync.onrender.com/qr to rescan.`);
   });
 
   // ── Auto-reconnect on disconnect ──────────────────────────────────────────
   client.on('disconnected', async (reason) => {
-    clientStatus = 'disconnected';
-    connectedAt = null;
     console.log(`⚠️  WhatsApp disconnected: ${reason}`);
-    await notifySlack(`⚠️ *WhatsApp Disconnected*\nReason: ${reason}\nTime: ${nowIST()} IST\nAuto-reconnecting in 10 seconds...`);
-    console.log('🔄 Auto-reconnecting in 10 seconds...');
-    try { await client.destroy(); } catch (_) {}
-    cleanupLockFiles();
-    setTimeout(startClient, 10000);
+    await restartClient(`disconnected: ${reason}`);
   });
 
   // ── Incoming messages ─────────────────────────────────────────────────────
@@ -313,12 +388,23 @@ async function triggerSummarize(phone) {
 
 // ─── Start / Restart Client ───────────────────────────────────────────────────
 function startClient() {
+  // If the primary session dir is missing/empty but a backup exists, restore first
+  try {
+    const hasSession = fs.existsSync(SESSION_DIR) && fs.readdirSync(SESSION_DIR).length > 0;
+    if (!hasSession && fs.existsSync(BACKUP_DIR)) {
+      console.log('♻️  No session found on boot — restoring from backup before connecting');
+      restoreSessionFromBackup();
+    }
+  } catch (err) {
+    console.log(`⚠️  Session pre-check error: ${err.message}`);
+  }
+
   client = createClient();
   attachEvents();
   client.initialize().catch(async (err) => {
     console.error('❌ WhatsApp initialize failed:', err?.message || err?.name || 'unknown error');
     clientStatus = 'init_failed';
-    try { await client.destroy(); } catch (_) {}
+    await safeDestroy();
     cleanupLockFiles();
     console.log('🔄 Retrying in 15 seconds...');
     setTimeout(startClient, 15000);
@@ -358,6 +444,11 @@ setInterval(async () => {
   }
 }, 30 * 60 * 1000);
 
+// ─── Periodic session backup while connected (every 6 hours) ─────────────────
+setInterval(() => {
+  if (clientStatus === 'connected') backupSession();
+}, 6 * 60 * 60 * 1000);
+
 // ─── Memory monitor (every 5 min) ────────────────────────────────────────────
 setInterval(() => {
   const mem = process.memoryUsage();
@@ -375,6 +466,6 @@ module.exports = {
   triggerSummarize,
   runBackfill: (beforeDate, afterDate) =>
     backfillAllChats(client, beforeDate, afterDate, () =>
-      restartClient('backfill: page unresponsive (detached frame)')
+      restartClient('backfill: page unresponsive (detached frame)', false) // no Slack noise for this one
     ),
 };

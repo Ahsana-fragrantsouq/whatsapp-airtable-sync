@@ -59,11 +59,11 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null, onU
   console.log('🔄 ═══════════════════════════════════════════\n');
 
   let chats;
-  const MAX_GETCHATS_ATTEMPTS = 2; // a truly dead page won't recover no matter how many times we retry
+  const MAX_GETCHATS_ATTEMPTS = 2;
   for (let attempt = 1; attempt <= MAX_GETCHATS_ATTEMPTS; attempt++) {
     try {
       chats = await client.getChats();
-      break; // success
+      break;
     } catch (err) {
       const isDetachedFrame = /detached Frame|Session closed|Target closed/i.test(err.message);
       console.error(`❌ getChats() attempt ${attempt}/${MAX_GETCHATS_ATTEMPTS} failed: ${err.message}`);
@@ -73,7 +73,7 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null, onU
         break;
       }
 
-      const waitMs = 8000 * attempt; // 8s, then 16s
+      const waitMs = 8000 * attempt;
       console.log(`⏳ Detached frame detected — waiting ${waitMs / 1000}s before retrying...`);
       await new Promise((r) => setTimeout(r, waitMs));
     }
@@ -99,7 +99,6 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null, onU
       const rawMessages = await chat.fetchMessages({ limit: 500 });
       if (!rawMessages || rawMessages.length === 0) continue;
 
-      // Resolve the real phone number (chat.id.user may be a LID)
       let phone = chat.id.user.replace(/\D/g, '');
       let contactName = chat.name || null;
       try {
@@ -108,13 +107,12 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null, onU
         contactName = contact.pushname || contact.name || contactName;
       } catch (_) {}
 
-      // Normalize and sort chronologically
       const normalized = rawMessages
         .filter((m) => m.body && m.body.trim() && !m.isStatus)
         .map((m) => ({
           role: m.fromMe ? 'agent' : 'customer',
           text: m.body.trim(),
-          timestamp: m.timestamp * 1000, // whatsapp-web.js gives seconds, convert to ms
+          timestamp: m.timestamp * 1000,
         }))
         .sort((a, b) => a.timestamp - b.timestamp);
 
@@ -122,7 +120,6 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null, onU
 
       let sessions = groupIntoSessions(normalized);
 
-      // Apply date filters
       if (beforeDate) {
         sessions = sessions.filter((s) => s[s.length - 1].timestamp < beforeDate.getTime());
       }
@@ -135,7 +132,6 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null, onU
       console.log(`\n📞 ${phone} (${contactName || 'Unknown'}): ${sessions.length} historical session(s) to backfill`);
       totalChatsProcessed++;
 
-      // Process oldest → newest so "Summery of last conversation" ends up correct
       for (const session of sessions) {
         const transcript = session
           .map((m) => `[${formatIST(m.timestamp)}] ${m.role === 'agent' ? '🟢 Agent' : '👤 Customer'}: ${m.text}`)
@@ -166,11 +162,9 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null, onU
           console.log(`   ❌ Airtable save failed: ${err.message}`);
         }
 
-        // Longer pacing to protect Chrome from overload
         await new Promise((r) => setTimeout(r, 2000));
       }
 
-      // Pause between chats to let Chrome breathe
       await new Promise((r) => setTimeout(r, 3000));
     } catch (err) {
       console.log(`⚠️  Error processing a chat: ${err.message}`);
