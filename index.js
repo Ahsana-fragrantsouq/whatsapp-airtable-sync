@@ -84,6 +84,12 @@ app.all('/backfill', async (req, res) => {
   if (backfillRunning) {
     return res.json({ success: false, error: 'Backfill already running. Check logs for progress.' });
   }
+
+  // Only allow backfill when fully connected
+  const { getStatus } = require('./services/whatsapp');
+  if (getStatus() !== 'connected') {
+    return res.json({ success: false, error: `WhatsApp is not fully connected yet (status: ${getStatus()}). Wait until status is "connected" then try again.` });
+  }
   const beforeDate = req.query.before ? new Date(req.query.before) : null;
   const afterDate  = req.query.after  ? new Date(req.query.after)  : null;
   if (req.query.before && isNaN(beforeDate?.getTime())) return res.status(400).json({ error: 'Invalid before date' });
