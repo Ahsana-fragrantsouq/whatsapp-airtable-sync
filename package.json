@@ -13,7 +13,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "qrcode": "^1.5.3",
-    "whatsapp-web.js": "github:carlosalaniz/whatsapp-web.js#fix/lid-getchats-crash"
+    "whatsapp-web.js": "https://github.com/carlosalaniz/whatsapp-web.js/tarball/fix/lid-getchats-crash"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
