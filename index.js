@@ -74,7 +74,7 @@ app.post('/save/:phone', async (req, res) => {
 
 // ─── Backfill Historical WhatsApp Chats ───────────────────────────────────────
 let backfillRunning = false;
-const BACKFILL_MIN_CONNECTED_MS = 45 * 1000; // wait 45s after connect before allowing backfill
+const BACKFILL_MIN_CONNECTED_MS = 90 * 1000; // wait 90s after connect before allowing backfill
 
 // GET /backfill                          → all history
 // GET /backfill?after=2026-07-02         → last week
