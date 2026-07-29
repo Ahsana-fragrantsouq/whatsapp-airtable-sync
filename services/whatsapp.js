@@ -47,12 +47,26 @@ function cleanupLockFiles() {
 }
 
 // ─── Force-kill any lingering Chrome process ──────────────────────────────────
+// ─── Force-kill any lingering Chrome process ──────────────────────────────────
 function killChromeProcesses() {
+  // Prefer Puppeteer's own handle — doesn't depend on a system pkill binary
   try {
-    execSync('pkill -9 -f "chrome" 2>/dev/null || true');
-    console.log('🔪 killChromeProcesses: done');
+    const proc = client?.pupBrowser?.process?.();
+    if (proc && !proc.killed) {
+      proc.kill('SIGKILL');
+      console.log('🔪 Killed Chrome via Puppeteer process handle');
+      return;
+    }
   } catch (err) {
-    console.log(`⚠️  killChromeProcesses error: ${err.message}`);
+    console.log(`⚠️  Puppeteer process kill failed: ${err.message}`);
+  }
+  // Fallback — semicolon (not ||) guarantees this never throws, even if
+  // pkill is missing from the image or matches nothing
+  try {
+    execSync('pkill -9 -f "chrome" 2>/dev/null; true');
+    console.log('🔪 killChromeProcesses: done (fallback)');
+  } catch (err) {
+    console.log(`⚠️  killChromeProcesses fallback error (non-fatal): ${err.message}`);
   }
 }
 
@@ -122,15 +136,8 @@ async function notifySlack(message) {
 function createClient() {
   return new Client({
     authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth' }),
-    webVersionCache: {
-      type: 'remote',
-      // Pinned known-stable WA Web build — avoids mid-session frame breaks from
-      // WhatsApp silently pushing an incompatible bundle. Check
-      // https://github.com/wppconnect-team/wa-version for the current recommended file
-      // if this one goes stale.
-      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1023077796-alpha.html',
-    },
     puppeteer: {
+
       headless: 'new',
       protocolTimeout: 180000,
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
