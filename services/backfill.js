@@ -58,6 +58,42 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null, onU
   if (!beforeDate && !afterDate) console.log(`🔄 No date filter — processing ALL history (risk of duplicates with live data)`);
   console.log('🔄 ═══════════════════════════════════════════\n');
 
+  // Wait for WhatsApp to actually finish syncing the chat list into the
+  // browser session before touching it — 'ready' fires on connection,
+  // not on chat-history sync completion, and calling getChats() too early
+  // is what's been producing the bare "r" error.
+  console.log('⏳ Waiting for chat list to finish syncing...');
+  const SYNC_CHECK_INTERVAL_MS = 5000;
+  const SYNC_MAX_WAIT_MS = 3 * 60 * 1000; // up to 3 minutes
+  let synced = false;
+  const syncStart = Date.now();
+
+  while (Date.now() - syncStart < SYNC_MAX_WAIT_MS) {
+    try {
+      const chatCount = await client.pupPage.evaluate(() => {
+        try {
+          return window.Store?.Chat?.getModelsArray?.().length ?? -1;
+        } catch (_) {
+          return -1;
+        }
+      });
+      if (chatCount > 0) {
+        console.log(`✅ Chat list synced — ${chatCount} chat(s) available after ${Math.round((Date.now() - syncStart) / 1000)}s`);
+        synced = true;
+        break;
+      }
+      console.log(`⏳ Still syncing (chatCount=${chatCount})... waiting`);
+    } catch (err) {
+      console.log(`⚠️  Sync check error: ${err.message}`);
+    }
+    await new Promise((r) => setTimeout(r, SYNC_CHECK_INTERVAL_MS));
+  }
+
+  if (!synced) {
+    console.error(`❌ Chat list never finished syncing after ${SYNC_MAX_WAIT_MS / 1000}s — aborting backfill.`);
+    return;
+  }
+
   let chats;
   const MAX_GETCHATS_ATTEMPTS = 2;
   for (let attempt = 1; attempt <= MAX_GETCHATS_ATTEMPTS; attempt++) {
@@ -65,14 +101,13 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null, onU
       chats = await client.getChats();
       break;
     } catch (err) {
-      const isDetachedFrame = /detached Frame|Session closed|Target closed/i.test(err.message);
-      console.error(`❌ getChats() attempt ${attempt}/${MAX_GETCHATS_ATTEMPTS} failed: ${err.message}`);
-
-      if (!isDetachedFrame || attempt === MAX_GETCHATS_ATTEMPTS) {
-        console.error(`❌ Backfill failed to get chat list.`);
-        break;
-      }
-
+      // Log everything we can about this error — "r" alone isn't diagnostic
+      console.error(`❌ getChats() attempt ${attempt}/${MAX_GETCHATS_ATTEMPTS} failed`);
+      console.error(`   message: ${err?.message}`);
+      console.error(`   name:    ${err?.name}`);
+      console.error(`   stack:   ${err?.stack?.split('\n').slice(0, 3).join(' | ')}`);
+      const isDetachedFrame = /detached Frame|Session closed|Target closed/i.test(err?.message || '');
+      if (!isDetachedFrame || attempt === MAX_GETCHATS_ATTEMPTS) break;
       const waitMs = 8000 * attempt;
       console.log(`⏳ Detached frame detected — waiting ${waitMs / 1000}s before retrying...`);
       await new Promise((r) => setTimeout(r, waitMs));
@@ -80,7 +115,7 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null, onU
   }
 
   if (!chats) {
-    console.error(`❌ Backfill aborted — chat list unreachable (page appears dead, not just WA reloading).`);
+    console.error(`❌ Backfill aborted — chat list unreachable.`);
     if (typeof onUnrecoverable === 'function') {
       console.log('🔄 Triggering a safe client restart to recover (session preserved, no QR needed)...');
       onUnrecoverable();
@@ -99,6 +134,7 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null, onU
       const rawMessages = await chat.fetchMessages({ limit: 500 });
       if (!rawMessages || rawMessages.length === 0) continue;
 
+      // Resolve the real phone number (chat.id.user may be a LID)
       let phone = chat.id.user.replace(/\D/g, '');
       let contactName = chat.name || null;
       try {
@@ -107,12 +143,13 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null, onU
         contactName = contact.pushname || contact.name || contactName;
       } catch (_) {}
 
+      // Normalize and sort chronologically
       const normalized = rawMessages
         .filter((m) => m.body && m.body.trim() && !m.isStatus)
         .map((m) => ({
           role: m.fromMe ? 'agent' : 'customer',
           text: m.body.trim(),
-          timestamp: m.timestamp * 1000,
+          timestamp: m.timestamp * 1000, // whatsapp-web.js gives seconds, convert to ms
         }))
         .sort((a, b) => a.timestamp - b.timestamp);
 
@@ -120,6 +157,7 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null, onU
 
       let sessions = groupIntoSessions(normalized);
 
+      // Apply date filters
       if (beforeDate) {
         sessions = sessions.filter((s) => s[s.length - 1].timestamp < beforeDate.getTime());
       }
@@ -132,6 +170,7 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null, onU
       console.log(`\n📞 ${phone} (${contactName || 'Unknown'}): ${sessions.length} historical session(s) to backfill`);
       totalChatsProcessed++;
 
+      // Process oldest → newest so "Summery of last conversation" ends up correct
       for (const session of sessions) {
         const transcript = session
           .map((m) => `[${formatIST(m.timestamp)}] ${m.role === 'agent' ? '🟢 Agent' : '👤 Customer'}: ${m.text}`)
@@ -162,9 +201,11 @@ async function backfillAllChats(client, beforeDate = null, afterDate = null, onU
           console.log(`   ❌ Airtable save failed: ${err.message}`);
         }
 
+        // Longer pacing to protect Chrome from overload
         await new Promise((r) => setTimeout(r, 2000));
       }
 
+      // Pause between chats to let Chrome breathe
       await new Promise((r) => setTimeout(r, 3000));
     } catch (err) {
       console.log(`⚠️  Error processing a chat: ${err.message}`);
