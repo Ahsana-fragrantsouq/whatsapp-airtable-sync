@@ -59,61 +59,31 @@ async function findExistingLead(phone) {
 }
 
 /**
- * Find matching product records in French Inventories using fuzzy search.
- * Searches "Product Name" field only.
- * Step 1: full phrase match (most accurate)
- * Step 2: single best keyword fallback (if no phrase match)
- * Returns array of matching record IDs (up to 3 matches).
+ * Find matching product records in French Inventories using EXACT match only.
+ * Compares "interest" against "Product Name" (case-insensitive, exact match).
+ * If no exact match is found, returns an empty array (leaves field blank).
  */
 async function findMatchingProducts(interest) {
   if (!interest || interest === 'Unknown') return [];
 
-  // Step 1 — try full phrase search first (most accurate)
   try {
-    const phraseResults = await base(INVENTORY_TABLE)
+    const exactResults = await base(INVENTORY_TABLE)
       .select({
-        filterByFormula: `FIND(LOWER("${interest.toLowerCase()}"), LOWER({Product Name}))`,
+        filterByFormula: `LOWER({Product Name}) = LOWER("${interest.replace(/"/g, '\\"')}")`,
         maxRecords: 3,
         fields: ['Product Name', 'SKU'],
       })
       .firstPage();
 
-    if (phraseResults && phraseResults.length > 0) {
-      phraseResults.forEach(r => console.log(`🔎 Matched product: ${r.fields['Product Name']}`));
-      return phraseResults.map(r => r.id).slice(0, 3);
+    if (exactResults && exactResults.length > 0) {
+      exactResults.forEach(r => console.log(`🔎 Exact match: ${r.fields['Product Name']}`));
+      return exactResults.map(r => r.id).slice(0, 3);
     }
   } catch (err) {
-    console.log(`⚠️  Full phrase search error: ${err.message}`);
+    console.log(`⚠️  Exact match search error: ${err.message}`);
   }
 
-  // Step 2 — fall back to single most specific keyword only
-  const stopWords = ['perfume', 'eau', 'de', 'parfum', 'edp', 'edt', 'ml', 'spray', 'unisex', 'men', 'women', 'for', 'the', 'and', 'collection', 'edition', 'limited', 'special', 'new', 'classic', 'original', 'intense', 'pure', 'gold', 'black', 'white', 'blue', 'red', 'pink', 'mini', 'set', 'gift'];
-  const keywords = interest
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(w => w.length > 4 && !stopWords.includes(w))
-    .sort((a, b) => b.length - a.length); // longest = most specific first
-
-  if (keywords.length === 0) return [];
-
-  const bestKeyword = keywords[0];
-  try {
-    const results = await base(INVENTORY_TABLE)
-      .select({
-        filterByFormula: `FIND(LOWER("${bestKeyword}"), LOWER({Product Name}))`,
-        maxRecords: 3,
-        fields: ['Product Name', 'SKU'],
-      })
-      .firstPage();
-
-    if (results && results.length > 0) {
-      results.forEach(r => console.log(`🔎 Matched product (keyword "${bestKeyword}"): ${r.fields['Product Name']}`));
-      return results.map(r => r.id).slice(0, 3);
-    }
-  } catch (err) {
-    console.log(`⚠️  Keyword search error for "${bestKeyword}": ${err.message}`);
-  }
-
+  console.log(`ℹ️  No exact match for "${interest}" — leaving Interested products blank`);
   return [];
 }
 

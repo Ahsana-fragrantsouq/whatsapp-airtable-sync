@@ -94,16 +94,14 @@ function findExistingLead(phone) {
   }, null, null, [[1, 8]]);
 }
 /**
- * Find matching product records in French Inventories using fuzzy search.
- * Searches "Product Name" field only.
- * Step 1: full phrase match (most accurate)
- * Step 2: single best keyword fallback (if no phrase match)
- * Returns array of matching record IDs (up to 3 matches).
+ * Find matching product records in French Inventories using EXACT match only.
+ * Compares "interest" against "Product Name" (case-insensitive, exact match).
+ * If no exact match is found, returns an empty array (leaves field blank).
  */
 
 
 function findMatchingProducts(interest) {
-  var phraseResults, stopWords, keywords, bestKeyword, results;
+  var exactResults;
   return regeneratorRuntime.async(function findMatchingProducts$(_context3) {
     while (1) {
       switch (_context3.prev = _context3.next) {
@@ -119,23 +117,23 @@ function findMatchingProducts(interest) {
           _context3.prev = 2;
           _context3.next = 5;
           return regeneratorRuntime.awrap(base(INVENTORY_TABLE).select({
-            filterByFormula: "FIND(LOWER(\"".concat(interest.toLowerCase(), "\"), LOWER({Product Name}))"),
+            filterByFormula: "LOWER({Product Name}) = LOWER(\"".concat(interest.replace(/"/g, '\\"'), "\")"),
             maxRecords: 3,
             fields: ['Product Name', 'SKU']
           }).firstPage());
 
         case 5:
-          phraseResults = _context3.sent;
+          exactResults = _context3.sent;
 
-          if (!(phraseResults && phraseResults.length > 0)) {
+          if (!(exactResults && exactResults.length > 0)) {
             _context3.next = 9;
             break;
           }
 
-          phraseResults.forEach(function (r) {
-            return console.log("\uD83D\uDD0E Matched product: ".concat(r.fields['Product Name']));
+          exactResults.forEach(function (r) {
+            return console.log("\uD83D\uDD0E Exact match: ".concat(r.fields['Product Name']));
           });
-          return _context3.abrupt("return", phraseResults.map(function (r) {
+          return _context3.abrupt("return", exactResults.map(function (r) {
             return r.id;
           }).slice(0, 3));
 
@@ -146,67 +144,18 @@ function findMatchingProducts(interest) {
         case 11:
           _context3.prev = 11;
           _context3.t0 = _context3["catch"](2);
-          console.log("\u26A0\uFE0F  Full phrase search error: ".concat(_context3.t0.message));
+          console.log("\u26A0\uFE0F  Exact match search error: ".concat(_context3.t0.message));
 
         case 14:
-          // Step 2 — fall back to single most specific keyword only
-          stopWords = ['perfume', 'eau', 'de', 'parfum', 'edp', 'edt', 'ml', 'spray', 'unisex', 'men', 'women', 'for', 'the', 'and', 'collection', 'edition', 'limited', 'special', 'new', 'classic', 'original', 'intense', 'pure', 'gold', 'black', 'white', 'blue', 'red', 'pink', 'mini', 'set', 'gift'];
-          keywords = interest.toLowerCase().split(/\s+/).filter(function (w) {
-            return w.length > 4 && !stopWords.includes(w);
-          }).sort(function (a, b) {
-            return b.length - a.length;
-          }); // longest = most specific first
-
-          if (!(keywords.length === 0)) {
-            _context3.next = 18;
-            break;
-          }
-
+          console.log("\u2139\uFE0F  No exact match for \"".concat(interest, "\" \u2014 leaving Interested products blank"));
           return _context3.abrupt("return", []);
 
-        case 18:
-          bestKeyword = keywords[0];
-          _context3.prev = 19;
-          _context3.next = 22;
-          return regeneratorRuntime.awrap(base(INVENTORY_TABLE).select({
-            filterByFormula: "FIND(LOWER(\"".concat(bestKeyword, "\"), LOWER({Product Name}))"),
-            maxRecords: 3,
-            fields: ['Product Name', 'SKU']
-          }).firstPage());
-
-        case 22:
-          results = _context3.sent;
-
-          if (!(results && results.length > 0)) {
-            _context3.next = 26;
-            break;
-          }
-
-          results.forEach(function (r) {
-            return console.log("\uD83D\uDD0E Matched product (keyword \"".concat(bestKeyword, "\"): ").concat(r.fields['Product Name']));
-          });
-          return _context3.abrupt("return", results.map(function (r) {
-            return r.id;
-          }).slice(0, 3));
-
-        case 26:
-          _context3.next = 31;
-          break;
-
-        case 28:
-          _context3.prev = 28;
-          _context3.t1 = _context3["catch"](19);
-          console.log("\u26A0\uFE0F  Keyword search error for \"".concat(bestKeyword, "\": ").concat(_context3.t1.message));
-
-        case 31:
-          return _context3.abrupt("return", []);
-
-        case 32:
+        case 16:
         case "end":
           return _context3.stop();
       }
     }
-  }, null, null, [[2, 11], [19, 28]]);
+  }, null, null, [[2, 11]]);
 }
 /**
  * Format a given date as DD/MM/YYYY for the All time summary prefix.
