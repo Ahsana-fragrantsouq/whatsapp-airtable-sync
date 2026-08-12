@@ -136,6 +136,10 @@ async function notifySlack(message) {
 function createClient() {
   return new Client({
     authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth' }),
+    webVersionCache: {
+      type: 'remote',
+      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1023027200-alpha.html',
+    },
     puppeteer: {
 
       headless: 'new',
