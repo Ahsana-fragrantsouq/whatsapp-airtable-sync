@@ -275,8 +275,8 @@ function attachEvents() {
     if (msg.from === 'status@broadcast') return;
     if (msg.isStatus) return;
 
-    const body = msg.body?.trim();
-    if (!body) return;
+    const body = msg.body?.trim() || '';
+    if (!body && !msg.hasMedia) return;
 
     let phone = msg.from.replace(/\D/g, '');
     let contactName = null;
@@ -304,7 +304,24 @@ function attachEvents() {
     }
 
     const convo = conversations[phone];
-    convo.messages.push({ role: 'customer', text: body, time: nowIST() });
+    const messageEntry = { role: 'customer', text: body, time: nowIST() };
+
+    if (msg.hasMedia) {
+      try {
+        const media = await msg.downloadMedia();
+        if (media?.mimetype?.startsWith('image/')) {
+          messageEntry.image = {
+            mimetype: media.mimetype,
+            data: media.data, // base64, no "data:" prefix
+            filename: media.filename || `whatsapp-${Date.now()}.${media.mimetype.split('/')[1]}`,
+          };
+        }
+      } catch (err) {
+        console.log(`⚠️  Failed to download media from ${phone}: ${err.message}`);
+      }
+    }
+
+    convo.messages.push(messageEntry);
     convo.lastActivity = new Date();
     convo.saved = false;
 
@@ -312,7 +329,8 @@ function attachEvents() {
     console.log(`💬 NEW MESSAGE`);
     console.log(`📱 From  : ${phone}`);
     console.log(`👤 Name  : ${convo.contact.name || 'Unknown'}`);
-    console.log(`💬 Text  : ${body}`);
+    console.log(`💬 Text  : ${body || '(no caption)'}`);
+    console.log(`🖼️  Image : ${messageEntry.image ? 'yes' : 'no'}`);
     console.log(`🕐 Time  : ${nowIST()} IST`);
     console.log(`📝 Total messages in conversation: ${convo.messages.length}`);
     console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
@@ -362,8 +380,10 @@ async function triggerSummarize(phone) {
   if (convo.timer) clearTimeout(convo.timer);
 
   const transcript = convo.messages
-    .map((m) => `[${m.time}] ${m.role === 'agent' ? '🟢 Agent' : '👤 Customer'}: ${m.text}`)
+    .map((m) => `[${m.time}] ${m.role === 'agent' ? '🟢 Agent' : '👤 Customer'}: ${m.text}${m.image ? ' [Image attached]' : ''}`)
     .join('\n');
+
+  const images = convo.messages.filter((m) => m.image).map((m) => m.image);
 
   console.log(`\n📋 FULL TRANSCRIPT FOR ${phone}:\n─────────────────────────────────`);
   console.log(transcript);
@@ -389,8 +409,9 @@ async function triggerSummarize(phone) {
       fullConversation: transcript,
       leadStatus: extracted.leadStatus,
       interest: extracted.interest,
+      images,
     });
-    console.log(`✅ Saved lead for ${phone} to Airtable`);
+    console.log(`✅ Saved lead for ${phone} to Airtable${images.length ? ` (${images.length} image(s))` : ''}`);
   } catch (airtableErr) {
     convo.saved = false;
     console.error(`❌ Airtable save failed for ${phone}:`, airtableErr.message);

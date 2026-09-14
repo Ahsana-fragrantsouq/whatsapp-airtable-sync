@@ -7,51 +7,173 @@ var base = new Airtable({
 }).base(process.env.AIRTABLE_BASE_ID);
 var LEAD_TABLE = process.env.AIRTABLE_TABLE_NAME || 'Lead table';
 var CUSTOMER_TABLE = process.env.AIRTABLE_CUSTOMER_TABLE || 'Customers';
-var INVENTORY_TABLE = 'French Inventories';
+var INVENTORY_TABLE = 'French Inventories'; // Must be an Attachment-type field on LEAD_TABLE. Create it in Airtable first
+// if it doesn't already exist, or set AIRTABLE_IMAGE_FIELD to an existing one.
+
+var IMAGE_FIELD = process.env.AIRTABLE_IMAGE_FIELD || 'WhatsApp Images';
+/**
+ * Uploads image(s) captured from WhatsApp straight to Airtable's own
+ * attachment storage — no third-party image host required. Each call
+ * appends one attachment to the field; existing attachments are kept.
+ * Requires Node 18+ for global fetch.
+ */
+
+function uploadImagesToLead(recordId, images) {
+  var _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, img, resp, result;
+
+  return regeneratorRuntime.async(function uploadImagesToLead$(_context) {
+    while (1) {
+      switch (_context.prev = _context.next) {
+        case 0:
+          if (!(!images || images.length === 0)) {
+            _context.next = 2;
+            break;
+          }
+
+          return _context.abrupt("return");
+
+        case 2:
+          _iteratorNormalCompletion = true;
+          _didIteratorError = false;
+          _iteratorError = undefined;
+          _context.prev = 5;
+          _iterator = images[Symbol.iterator]();
+
+        case 7:
+          if (_iteratorNormalCompletion = (_step = _iterator.next()).done) {
+            _context.next = 25;
+            break;
+          }
+
+          img = _step.value;
+          _context.prev = 9;
+          _context.next = 12;
+          return regeneratorRuntime.awrap(fetch("https://content.airtable.com/v0/".concat(process.env.AIRTABLE_BASE_ID, "/").concat(recordId, "/").concat(encodeURIComponent(IMAGE_FIELD), "/uploadAttachment"), {
+            method: 'POST',
+            headers: {
+              Authorization: "Bearer ".concat(process.env.AIRTABLE_API_KEY),
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              contentType: img.mimetype,
+              filename: img.filename,
+              file: img.data
+            })
+          }));
+
+        case 12:
+          resp = _context.sent;
+          _context.next = 15;
+          return regeneratorRuntime.awrap(resp.json());
+
+        case 15:
+          result = _context.sent;
+
+          if (!resp.ok) {
+            console.log("\u26A0\uFE0F  Airtable image upload failed: ".concat(JSON.stringify(result)));
+          } else {
+            console.log("\uD83D\uDDBC\uFE0F  Uploaded image to Airtable record ".concat(recordId));
+          }
+
+          _context.next = 22;
+          break;
+
+        case 19:
+          _context.prev = 19;
+          _context.t0 = _context["catch"](9);
+          console.log("\u26A0\uFE0F  Airtable image upload error: ".concat(_context.t0.message));
+
+        case 22:
+          _iteratorNormalCompletion = true;
+          _context.next = 7;
+          break;
+
+        case 25:
+          _context.next = 31;
+          break;
+
+        case 27:
+          _context.prev = 27;
+          _context.t1 = _context["catch"](5);
+          _didIteratorError = true;
+          _iteratorError = _context.t1;
+
+        case 31:
+          _context.prev = 31;
+          _context.prev = 32;
+
+          if (!_iteratorNormalCompletion && _iterator["return"] != null) {
+            _iterator["return"]();
+          }
+
+        case 34:
+          _context.prev = 34;
+
+          if (!_didIteratorError) {
+            _context.next = 37;
+            break;
+          }
+
+          throw _iteratorError;
+
+        case 37:
+          return _context.finish(34);
+
+        case 38:
+          return _context.finish(31);
+
+        case 39:
+        case "end":
+          return _context.stop();
+      }
+    }
+  }, null, null, [[5, 27, 31, 39], [9, 19], [32,, 34, 38]]);
+}
 /**
  * Find an existing customer by WhatsApp number, or create a new one.
  * Returns the Airtable record ID.
  */
 
+
 function findOrCreateCustomer(phone, name) {
   var formattedPhone, existing, created;
-  return regeneratorRuntime.async(function findOrCreateCustomer$(_context) {
+  return regeneratorRuntime.async(function findOrCreateCustomer$(_context2) {
     while (1) {
-      switch (_context.prev = _context.next) {
+      switch (_context2.prev = _context2.next) {
         case 0:
           formattedPhone = phone.startsWith('+') ? phone : "+".concat(phone);
-          _context.next = 3;
+          _context2.next = 3;
           return regeneratorRuntime.awrap(base(CUSTOMER_TABLE).select({
             filterByFormula: "{Whatsapp number} = \"".concat(formattedPhone, "\""),
             maxRecords: 1
           }).firstPage());
 
         case 3:
-          existing = _context.sent;
+          existing = _context2.sent;
 
           if (!(existing && existing.length > 0)) {
-            _context.next = 7;
+            _context2.next = 7;
             break;
           }
 
           console.log("\uD83D\uDC64 Found existing customer for ".concat(formattedPhone));
-          return _context.abrupt("return", existing[0].id);
+          return _context2.abrupt("return", existing[0].id);
 
         case 7:
-          _context.next = 9;
+          _context2.next = 9;
           return regeneratorRuntime.awrap(base(CUSTOMER_TABLE).create({
             'Customer Name': name || 'Unknown (WhatsApp)',
             'Whatsapp number': formattedPhone
           }));
 
         case 9:
-          created = _context.sent;
+          created = _context2.sent;
           console.log("\uD83D\uDC64\u2795 Created new customer for ".concat(formattedPhone));
-          return _context.abrupt("return", created.id);
+          return _context2.abrupt("return", created.id);
 
         case 12:
         case "end":
-          return _context.stop();
+          return _context2.stop();
       }
     }
   });
@@ -64,31 +186,31 @@ function findOrCreateCustomer(phone, name) {
 
 function findExistingLead(phone) {
   var formattedPhone, records;
-  return regeneratorRuntime.async(function findExistingLead$(_context2) {
+  return regeneratorRuntime.async(function findExistingLead$(_context3) {
     while (1) {
-      switch (_context2.prev = _context2.next) {
+      switch (_context3.prev = _context3.next) {
         case 0:
           formattedPhone = phone.startsWith('+') ? phone : "+".concat(phone);
-          _context2.prev = 1;
-          _context2.next = 4;
+          _context3.prev = 1;
+          _context3.next = 4;
           return regeneratorRuntime.awrap(base(LEAD_TABLE).select({
             filterByFormula: "AND(\n          {Lead Source} = \"Whatsapp\",\n          FIND(\"".concat(formattedPhone, "\", ARRAYJOIN({Name (from Customers)}, \",\"))\n        )"),
             maxRecords: 1
           }).firstPage());
 
         case 4:
-          records = _context2.sent;
-          return _context2.abrupt("return", records && records.length > 0 ? records[0] : null);
+          records = _context3.sent;
+          return _context3.abrupt("return", records && records.length > 0 ? records[0] : null);
 
         case 8:
-          _context2.prev = 8;
-          _context2.t0 = _context2["catch"](1);
-          console.log("\u26A0\uFE0F  findExistingLead error: ".concat(_context2.t0.message));
-          return _context2.abrupt("return", null);
+          _context3.prev = 8;
+          _context3.t0 = _context3["catch"](1);
+          console.log("\u26A0\uFE0F  findExistingLead error: ".concat(_context3.t0.message));
+          return _context3.abrupt("return", null);
 
         case 12:
         case "end":
-          return _context2.stop();
+          return _context3.stop();
       }
     }
   }, null, null, [[1, 8]]);
@@ -102,20 +224,20 @@ function findExistingLead(phone) {
 
 function findMatchingProducts(interest) {
   var exactResults;
-  return regeneratorRuntime.async(function findMatchingProducts$(_context3) {
+  return regeneratorRuntime.async(function findMatchingProducts$(_context4) {
     while (1) {
-      switch (_context3.prev = _context3.next) {
+      switch (_context4.prev = _context4.next) {
         case 0:
           if (!(!interest || interest === 'Unknown')) {
-            _context3.next = 2;
+            _context4.next = 2;
             break;
           }
 
-          return _context3.abrupt("return", []);
+          return _context4.abrupt("return", []);
 
         case 2:
-          _context3.prev = 2;
-          _context3.next = 5;
+          _context4.prev = 2;
+          _context4.next = 5;
           return regeneratorRuntime.awrap(base(INVENTORY_TABLE).select({
             filterByFormula: "LOWER({Product Name}) = LOWER(\"".concat(interest.replace(/"/g, '\\"'), "\")"),
             maxRecords: 3,
@@ -123,36 +245,36 @@ function findMatchingProducts(interest) {
           }).firstPage());
 
         case 5:
-          exactResults = _context3.sent;
+          exactResults = _context4.sent;
 
           if (!(exactResults && exactResults.length > 0)) {
-            _context3.next = 9;
+            _context4.next = 9;
             break;
           }
 
           exactResults.forEach(function (r) {
             return console.log("\uD83D\uDD0E Exact match: ".concat(r.fields['Product Name']));
           });
-          return _context3.abrupt("return", exactResults.map(function (r) {
+          return _context4.abrupt("return", exactResults.map(function (r) {
             return r.id;
           }).slice(0, 3));
 
         case 9:
-          _context3.next = 14;
+          _context4.next = 14;
           break;
 
         case 11:
-          _context3.prev = 11;
-          _context3.t0 = _context3["catch"](2);
-          console.log("\u26A0\uFE0F  Exact match search error: ".concat(_context3.t0.message));
+          _context4.prev = 11;
+          _context4.t0 = _context4["catch"](2);
+          console.log("\u26A0\uFE0F  Exact match search error: ".concat(_context4.t0.message));
 
         case 14:
           console.log("\u2139\uFE0F  No exact match for \"".concat(interest, "\" \u2014 leaving Interested products blank"));
-          return _context3.abrupt("return", []);
+          return _context4.abrupt("return", []);
 
         case 16:
         case "end":
-          return _context3.stop();
+          return _context4.stop();
       }
     }
   }, null, null, [[2, 11]]);
@@ -181,41 +303,41 @@ function formatLabel(date) {
 
 
 function saveToAirtable(_ref) {
-  var name, phone, email, sessionSummary, fullConversation, leadStatus, interest, sessionDate, effectiveDate, today, dateLabel, customerId, productIds, existingLead, currentAllTime, newAllTime, updateFields, createFields;
-  return regeneratorRuntime.async(function saveToAirtable$(_context4) {
+  var name, phone, email, sessionSummary, fullConversation, leadStatus, interest, sessionDate, images, effectiveDate, today, dateLabel, customerId, productIds, existingLead, currentAllTime, newAllTime, updateFields, createFields, created;
+  return regeneratorRuntime.async(function saveToAirtable$(_context5) {
     while (1) {
-      switch (_context4.prev = _context4.next) {
+      switch (_context5.prev = _context5.next) {
         case 0:
-          name = _ref.name, phone = _ref.phone, email = _ref.email, sessionSummary = _ref.sessionSummary, fullConversation = _ref.fullConversation, leadStatus = _ref.leadStatus, interest = _ref.interest, sessionDate = _ref.sessionDate;
+          name = _ref.name, phone = _ref.phone, email = _ref.email, sessionSummary = _ref.sessionSummary, fullConversation = _ref.fullConversation, leadStatus = _ref.leadStatus, interest = _ref.interest, sessionDate = _ref.sessionDate, images = _ref.images;
           effectiveDate = sessionDate instanceof Date ? sessionDate : new Date();
           today = effectiveDate.toISOString().split('T')[0];
           dateLabel = formatLabel(effectiveDate); // Step 1 — find or create customer record
 
-          _context4.next = 6;
+          _context5.next = 6;
           return regeneratorRuntime.awrap(findOrCreateCustomer(phone, name));
 
         case 6:
-          customerId = _context4.sent;
-          _context4.next = 9;
+          customerId = _context5.sent;
+          _context5.next = 9;
           return regeneratorRuntime.awrap(findMatchingProducts(interest));
 
         case 9:
-          productIds = _context4.sent;
+          productIds = _context5.sent;
 
           if (productIds.length > 0) {
             console.log("\uD83D\uDECD\uFE0F  Linking ".concat(productIds.length, " product(s) to lead"));
           } // Step 3 — check if a Lead record already exists for this customer
 
 
-          _context4.next = 13;
+          _context5.next = 13;
           return regeneratorRuntime.awrap(findExistingLead(phone));
 
         case 13:
-          existingLead = _context4.sent;
+          existingLead = _context5.sent;
           console.log("\uD83D\uDD0D Existing lead for phone ".concat(phone, ": ").concat(existingLead ? existingLead.id : 'not found'));
 
           if (!existingLead) {
-            _context4.next = 25;
+            _context5.next = 27;
             break;
           }
 
@@ -228,15 +350,19 @@ function saveToAirtable(_ref) {
             'Last communicated date': today
           };
           if (productIds.length > 0) updateFields['Interested products'] = productIds;
-          _context4.next = 22;
+          _context5.next = 22;
           return regeneratorRuntime.awrap(base(LEAD_TABLE).update(existingLead.id, updateFields));
 
         case 22:
           console.log("\uD83D\uDCDD Updated Lead record for ".concat(phone, " \u2014 appended to All time summary"));
-          _context4.next = 30;
-          break;
+          _context5.next = 25;
+          return regeneratorRuntime.awrap(uploadImagesToLead(existingLead.id, images));
 
         case 25:
+          _context5.next = 35;
+          break;
+
+        case 27:
           // ── CREATE new record ────────────────────────────────────────────────────
           createFields = {
             'Summery of last conversation': sessionSummary,
@@ -247,15 +373,18 @@ function saveToAirtable(_ref) {
             'Customers': [customerId]
           };
           if (productIds.length > 0) createFields['Interested products'] = productIds;
-          _context4.next = 29;
+          _context5.next = 31;
           return regeneratorRuntime.awrap(base(LEAD_TABLE).create(createFields));
 
-        case 29:
+        case 31:
+          created = _context5.sent;
           console.log("\u2795 Created new Lead record for ".concat(phone));
+          _context5.next = 35;
+          return regeneratorRuntime.awrap(uploadImagesToLead(created.id, images));
 
-        case 30:
+        case 35:
         case "end":
-          return _context4.stop();
+          return _context5.stop();
       }
     }
   });

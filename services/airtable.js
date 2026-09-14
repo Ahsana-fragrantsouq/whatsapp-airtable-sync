@@ -7,6 +7,47 @@ const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY }).base(
 const LEAD_TABLE      = process.env.AIRTABLE_TABLE_NAME || 'Lead table';
 const CUSTOMER_TABLE  = process.env.AIRTABLE_CUSTOMER_TABLE || 'Customers';
 const INVENTORY_TABLE = 'French Inventories';
+// Must be an Attachment-type field on LEAD_TABLE. Create it in Airtable first
+// if it doesn't already exist, or set AIRTABLE_IMAGE_FIELD to an existing one.
+const IMAGE_FIELD = process.env.AIRTABLE_IMAGE_FIELD || 'WhatsApp Images';
+
+/**
+ * Uploads image(s) captured from WhatsApp straight to Airtable's own
+ * attachment storage — no third-party image host required. Each call
+ * appends one attachment to the field; existing attachments are kept.
+ * Requires Node 18+ for global fetch.
+ */
+async function uploadImagesToLead(recordId, images) {
+  if (!images || images.length === 0) return;
+
+  for (const img of images) {
+    try {
+      const resp = await fetch(
+        `https://content.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/${recordId}/${encodeURIComponent(IMAGE_FIELD)}/uploadAttachment`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contentType: img.mimetype,
+            filename: img.filename,
+            file: img.data,
+          }),
+        }
+      );
+      const result = await resp.json();
+      if (!resp.ok) {
+        console.log(`⚠️  Airtable image upload failed: ${JSON.stringify(result)}`);
+      } else {
+        console.log(`🖼️  Uploaded image to Airtable record ${recordId}`);
+      }
+    } catch (err) {
+      console.log(`⚠️  Airtable image upload error: ${err.message}`);
+    }
+  }
+}
 
 /**
  * Find an existing customer by WhatsApp number, or create a new one.
@@ -107,7 +148,7 @@ function formatLabel(date) {
  * sessionDate (optional) — pass a Date object when backfilling historical
  * conversations so the entry is dated correctly instead of "today".
  */
-async function saveToAirtable({ name, phone, email, sessionSummary, fullConversation, leadStatus, interest, sessionDate }) {
+async function saveToAirtable({ name, phone, email, sessionSummary, fullConversation, leadStatus, interest, sessionDate, images }) {
   const effectiveDate = sessionDate instanceof Date ? sessionDate : new Date();
   const today     = effectiveDate.toISOString().split('T')[0];
   const dateLabel = formatLabel(effectiveDate);
@@ -142,6 +183,7 @@ async function saveToAirtable({ name, phone, email, sessionSummary, fullConversa
 
     await base(LEAD_TABLE).update(existingLead.id, updateFields);
     console.log(`📝 Updated Lead record for ${phone} — appended to All time summary`);
+    await uploadImagesToLead(existingLead.id, images);
 
   } else {
     // ── CREATE new record ────────────────────────────────────────────────────
@@ -155,8 +197,9 @@ async function saveToAirtable({ name, phone, email, sessionSummary, fullConversa
     };
     if (productIds.length > 0) createFields['Interested products'] = productIds;
 
-    await base(LEAD_TABLE).create(createFields);
+    const created = await base(LEAD_TABLE).create(createFields);
     console.log(`➕ Created new Lead record for ${phone}`);
+    await uploadImagesToLead(created.id, images);
   }
 }
 
