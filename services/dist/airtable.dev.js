@@ -7,127 +7,105 @@ var base = new Airtable({
 }).base(process.env.AIRTABLE_BASE_ID);
 var LEAD_TABLE = process.env.AIRTABLE_TABLE_NAME || 'Lead table';
 var CUSTOMER_TABLE = process.env.AIRTABLE_CUSTOMER_TABLE || 'Customers';
-var INVENTORY_TABLE = 'French Inventories'; // Must be an Attachment-type field on LEAD_TABLE. Create it in Airtable first
-// if it doesn't already exist, or set AIRTABLE_IMAGE_FIELD to an existing one.
+var INVENTORY_TABLE = 'French Inventories'; // Plain text (or URL) field on LEAD_TABLE — not an Attachment field.
+// Multiple images in one session are stored as newline-separated URLs.
 
-var IMAGE_FIELD = process.env.AIRTABLE_IMAGE_FIELD || 'WhatsApp Images';
+var IMAGE_URL_FIELD = process.env.AIRTABLE_IMAGE_FIELD || 'image_url';
+
+var _require = require('./cloudinary_upload'),
+    uploadImageToCloudinary = _require.uploadImageToCloudinary;
 /**
- * Uploads image(s) captured from WhatsApp straight to Airtable's own
- * attachment storage — no third-party image host required. Each call
- * appends one attachment to the field; existing attachments are kept.
- * Requires Node 18+ for global fetch.
+ * Uploads each image to Cloudinary and returns their public URLs.
+ * Failures for individual images are logged and skipped rather than
+ * failing the whole session save.
  */
 
-function uploadImagesToLead(recordId, images) {
-  var _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, img, resp, result;
 
-  return regeneratorRuntime.async(function uploadImagesToLead$(_context) {
+function uploadImagesGetUrls(images) {
+  var urls, _iteratorNormalCompletion, _didIteratorError, _iteratorError, _iterator, _step, img, url;
+
+  return regeneratorRuntime.async(function uploadImagesGetUrls$(_context) {
     while (1) {
       switch (_context.prev = _context.next) {
         case 0:
-          if (!(!images || images.length === 0)) {
-            _context.next = 2;
-            break;
-          }
-
-          return _context.abrupt("return");
-
-        case 2:
+          urls = [];
           _iteratorNormalCompletion = true;
           _didIteratorError = false;
           _iteratorError = undefined;
-          _context.prev = 5;
+          _context.prev = 4;
           _iterator = images[Symbol.iterator]();
 
-        case 7:
+        case 6:
           if (_iteratorNormalCompletion = (_step = _iterator.next()).done) {
-            _context.next = 25;
+            _context.next = 22;
             break;
           }
 
           img = _step.value;
-          _context.prev = 9;
-          _context.next = 12;
-          return regeneratorRuntime.awrap(fetch("https://content.airtable.com/v0/".concat(process.env.AIRTABLE_BASE_ID, "/").concat(recordId, "/").concat(encodeURIComponent(IMAGE_FIELD), "/uploadAttachment"), {
-            method: 'POST',
-            headers: {
-              Authorization: "Bearer ".concat(process.env.AIRTABLE_API_KEY),
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              contentType: img.mimetype,
-              filename: img.filename,
-              file: img.data
-            })
-          }));
+          _context.prev = 8;
+          _context.next = 11;
+          return regeneratorRuntime.awrap(uploadImageToCloudinary(img.data, img.mimetype, img.filename));
 
-        case 12:
-          resp = _context.sent;
-          _context.next = 15;
-          return regeneratorRuntime.awrap(resp.json());
-
-        case 15:
-          result = _context.sent;
-
-          if (!resp.ok) {
-            console.log("\u26A0\uFE0F  Airtable image upload failed: ".concat(JSON.stringify(result)));
-          } else {
-            console.log("\uD83D\uDDBC\uFE0F  Uploaded image to Airtable record ".concat(recordId));
-          }
-
-          _context.next = 22;
+        case 11:
+          url = _context.sent;
+          urls.push(url);
+          console.log("\uD83D\uDDBC\uFE0F  Uploaded to Cloudinary: ".concat(url));
+          _context.next = 19;
           break;
+
+        case 16:
+          _context.prev = 16;
+          _context.t0 = _context["catch"](8);
+          console.log("\u26A0\uFE0F  Cloudinary upload failed: ".concat(_context.t0.message));
 
         case 19:
-          _context.prev = 19;
-          _context.t0 = _context["catch"](9);
-          console.log("\u26A0\uFE0F  Airtable image upload error: ".concat(_context.t0.message));
+          _iteratorNormalCompletion = true;
+          _context.next = 6;
+          break;
 
         case 22:
-          _iteratorNormalCompletion = true;
-          _context.next = 7;
+          _context.next = 28;
           break;
 
-        case 25:
-          _context.next = 31;
-          break;
-
-        case 27:
-          _context.prev = 27;
-          _context.t1 = _context["catch"](5);
+        case 24:
+          _context.prev = 24;
+          _context.t1 = _context["catch"](4);
           _didIteratorError = true;
           _iteratorError = _context.t1;
 
-        case 31:
-          _context.prev = 31;
-          _context.prev = 32;
+        case 28:
+          _context.prev = 28;
+          _context.prev = 29;
 
           if (!_iteratorNormalCompletion && _iterator["return"] != null) {
             _iterator["return"]();
           }
 
-        case 34:
-          _context.prev = 34;
+        case 31:
+          _context.prev = 31;
 
           if (!_didIteratorError) {
-            _context.next = 37;
+            _context.next = 34;
             break;
           }
 
           throw _iteratorError;
 
-        case 37:
-          return _context.finish(34);
-
-        case 38:
+        case 34:
           return _context.finish(31);
 
-        case 39:
+        case 35:
+          return _context.finish(28);
+
+        case 36:
+          return _context.abrupt("return", urls);
+
+        case 37:
         case "end":
           return _context.stop();
       }
     }
-  }, null, null, [[5, 27, 31, 39], [9, 19], [32,, 34, 38]]);
+  }, null, null, [[4, 24, 28, 36], [8, 16], [29,, 31, 35]]);
 }
 /**
  * Find an existing customer by WhatsApp number, or create a new one.
@@ -303,7 +281,7 @@ function formatLabel(date) {
 
 
 function saveToAirtable(_ref) {
-  var name, phone, email, sessionSummary, fullConversation, leadStatus, interest, sessionDate, images, effectiveDate, today, dateLabel, customerId, productIds, existingLead, currentAllTime, newAllTime, updateFields, createFields, created;
+  var name, phone, email, sessionSummary, fullConversation, leadStatus, interest, sessionDate, images, effectiveDate, today, dateLabel, customerId, productIds, existingLead, newImageUrls, currentAllTime, newAllTime, updateFields, currentUrls, createFields;
   return regeneratorRuntime.async(function saveToAirtable$(_context5) {
     while (1) {
       switch (_context5.prev = _context5.next) {
@@ -334,10 +312,29 @@ function saveToAirtable(_ref) {
 
         case 13:
           existingLead = _context5.sent;
-          console.log("\uD83D\uDD0D Existing lead for phone ".concat(phone, ": ").concat(existingLead ? existingLead.id : 'not found'));
+          console.log("\uD83D\uDD0D Existing lead for phone ".concat(phone, ": ").concat(existingLead ? existingLead.id : 'not found')); // Step 4 — upload any images from this session to Cloudinary
+
+          if (!(images && images.length)) {
+            _context5.next = 21;
+            break;
+          }
+
+          _context5.next = 18;
+          return regeneratorRuntime.awrap(uploadImagesGetUrls(images));
+
+        case 18:
+          _context5.t0 = _context5.sent;
+          _context5.next = 22;
+          break;
+
+        case 21:
+          _context5.t0 = [];
+
+        case 22:
+          newImageUrls = _context5.t0;
 
           if (!existingLead) {
-            _context5.next = 27;
+            _context5.next = 34;
             break;
           }
 
@@ -350,19 +347,21 @@ function saveToAirtable(_ref) {
             'Last communicated date': today
           };
           if (productIds.length > 0) updateFields['Interested products'] = productIds;
-          _context5.next = 22;
+
+          if (newImageUrls.length > 0) {
+            currentUrls = existingLead.fields[IMAGE_URL_FIELD] || '';
+            updateFields[IMAGE_URL_FIELD] = currentUrls ? "".concat(currentUrls, "\n").concat(newImageUrls.join('\n')) : newImageUrls.join('\n');
+          }
+
+          _context5.next = 31;
           return regeneratorRuntime.awrap(base(LEAD_TABLE).update(existingLead.id, updateFields));
 
-        case 22:
+        case 31:
           console.log("\uD83D\uDCDD Updated Lead record for ".concat(phone, " \u2014 appended to All time summary"));
-          _context5.next = 25;
-          return regeneratorRuntime.awrap(uploadImagesToLead(existingLead.id, images));
-
-        case 25:
-          _context5.next = 35;
+          _context5.next = 40;
           break;
 
-        case 27:
+        case 34:
           // ── CREATE new record ────────────────────────────────────────────────────
           createFields = {
             'Summery of last conversation': sessionSummary,
@@ -373,16 +372,14 @@ function saveToAirtable(_ref) {
             'Customers': [customerId]
           };
           if (productIds.length > 0) createFields['Interested products'] = productIds;
-          _context5.next = 31;
+          if (newImageUrls.length > 0) createFields[IMAGE_URL_FIELD] = newImageUrls.join('\n');
+          _context5.next = 39;
           return regeneratorRuntime.awrap(base(LEAD_TABLE).create(createFields));
 
-        case 31:
-          created = _context5.sent;
+        case 39:
           console.log("\u2795 Created new Lead record for ".concat(phone));
-          _context5.next = 35;
-          return regeneratorRuntime.awrap(uploadImagesToLead(created.id, images));
 
-        case 35:
+        case 40:
         case "end":
           return _context5.stop();
       }

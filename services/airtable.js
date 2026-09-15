@@ -7,46 +7,29 @@ const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY }).base(
 const LEAD_TABLE      = process.env.AIRTABLE_TABLE_NAME || 'Lead table';
 const CUSTOMER_TABLE  = process.env.AIRTABLE_CUSTOMER_TABLE || 'Customers';
 const INVENTORY_TABLE = 'French Inventories';
-// Must be an Attachment-type field on LEAD_TABLE. Create it in Airtable first
-// if it doesn't already exist, or set AIRTABLE_IMAGE_FIELD to an existing one.
-const IMAGE_FIELD = process.env.AIRTABLE_IMAGE_FIELD || 'WhatsApp Images';
+// Plain text (or URL) field on LEAD_TABLE — not an Attachment field.
+// Multiple images in one session are stored as newline-separated URLs.
+const IMAGE_URL_FIELD = process.env.AIRTABLE_IMAGE_FIELD || 'image_url';
+
+const { uploadImageToCloudinary } = require('./cloudinary_upload');
 
 /**
- * Uploads image(s) captured from WhatsApp straight to Airtable's own
- * attachment storage — no third-party image host required. Each call
- * appends one attachment to the field; existing attachments are kept.
- * Requires Node 18+ for global fetch.
+ * Uploads each image to Cloudinary and returns their public URLs.
+ * Failures for individual images are logged and skipped rather than
+ * failing the whole session save.
  */
-async function uploadImagesToLead(recordId, images) {
-  if (!images || images.length === 0) return;
-
+async function uploadImagesGetUrls(images) {
+  const urls = [];
   for (const img of images) {
     try {
-      const resp = await fetch(
-        `https://content.airtable.com/v0/${process.env.AIRTABLE_BASE_ID}/${recordId}/${encodeURIComponent(IMAGE_FIELD)}/uploadAttachment`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${process.env.AIRTABLE_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contentType: img.mimetype,
-            filename: img.filename,
-            file: img.data,
-          }),
-        }
-      );
-      const result = await resp.json();
-      if (!resp.ok) {
-        console.log(`⚠️  Airtable image upload failed: ${JSON.stringify(result)}`);
-      } else {
-        console.log(`🖼️  Uploaded image to Airtable record ${recordId}`);
-      }
+      const url = await uploadImageToCloudinary(img.data, img.mimetype, img.filename);
+      urls.push(url);
+      console.log(`🖼️  Uploaded to Cloudinary: ${url}`);
     } catch (err) {
-      console.log(`⚠️  Airtable image upload error: ${err.message}`);
+      console.log(`⚠️  Cloudinary upload failed: ${err.message}`);
     }
   }
+  return urls;
 }
 
 /**
@@ -166,6 +149,9 @@ async function saveToAirtable({ name, phone, email, sessionSummary, fullConversa
   const existingLead = await findExistingLead(phone);
   console.log(`🔍 Existing lead for phone ${phone}: ${existingLead ? existingLead.id : 'not found'}`);
 
+  // Step 4 — upload any images from this session to Cloudinary
+  const newImageUrls = images && images.length ? await uploadImagesGetUrls(images) : [];
+
   if (existingLead) {
     // ── UPDATE existing record ───────────────────────────────────────────────
     const currentAllTime = existingLead.fields['All time summary'] || '';
@@ -181,9 +167,15 @@ async function saveToAirtable({ name, phone, email, sessionSummary, fullConversa
     };
     if (productIds.length > 0) updateFields['Interested products'] = productIds;
 
+    if (newImageUrls.length > 0) {
+      const currentUrls = existingLead.fields[IMAGE_URL_FIELD] || '';
+      updateFields[IMAGE_URL_FIELD] = currentUrls
+        ? `${currentUrls}\n${newImageUrls.join('\n')}`
+        : newImageUrls.join('\n');
+    }
+
     await base(LEAD_TABLE).update(existingLead.id, updateFields);
     console.log(`📝 Updated Lead record for ${phone} — appended to All time summary`);
-    await uploadImagesToLead(existingLead.id, images);
 
   } else {
     // ── CREATE new record ────────────────────────────────────────────────────
@@ -196,10 +188,10 @@ async function saveToAirtable({ name, phone, email, sessionSummary, fullConversa
       'Customers':                    [customerId],
     };
     if (productIds.length > 0) createFields['Interested products'] = productIds;
+    if (newImageUrls.length > 0) createFields[IMAGE_URL_FIELD] = newImageUrls.join('\n');
 
-    const created = await base(LEAD_TABLE).create(createFields);
+    await base(LEAD_TABLE).create(createFields);
     console.log(`➕ Created new Lead record for ${phone}`);
-    await uploadImagesToLead(created.id, images);
   }
 }
 
