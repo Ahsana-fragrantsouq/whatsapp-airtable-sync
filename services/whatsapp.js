@@ -263,6 +263,25 @@ function attachEvents() {
   // ── Auto-reconnect on disconnect ──────────────────────────────────────────
   client.on('disconnected', async (reason) => {
     console.log(`⚠️  WhatsApp disconnected: ${reason}`);
+
+    if (reason === 'LOGOUT') {
+      // LOGOUT = WhatsApp revoked the session (phone unlinked this device).
+      // Session files on disk are now dead — clear them so the next boot
+      // goes straight to QR instead of wasting time on an invalid session.
+      console.log('🗑️  LOGOUT — clearing dead session and backup...');
+      try {
+        execSync(`rm -rf "${SESSION_DIR}" "${BACKUP_DIR}" "${BACKUP_DIR}_tmp" 2>/dev/null || true`);
+        console.log('🗑️  Session and backup cleared');
+      } catch (_) {}
+      clientStatus = 'disconnected';
+      connectedAt = null;
+      await safeDestroy();
+      cleanupLockFiles();
+      await notifySlack(`🚨 *WhatsApp LOGGED OUT* — QR rescan required!\nThe phone unlinked this device.\nVisit https://whatsapp-airtable-sync.onrender.com/qr to scan now.\nTime: ${nowIST()} IST`);
+      setTimeout(startClient, 5000);
+      return;
+    }
+
     await restartClient(`disconnected: ${reason}`);
   });
 
