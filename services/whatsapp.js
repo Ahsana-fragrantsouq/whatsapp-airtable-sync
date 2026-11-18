@@ -265,6 +265,12 @@ function attachEvents() {
     console.log(`⚠️  WhatsApp disconnected: ${reason}`);
 
     if (reason === 'LOGOUT') {
+      // Guard: only one LOGOUT restart cycle at a time
+      if (restartInProgress) {
+        console.log('⏭️  LOGOUT received but restart already in progress — ignoring duplicate');
+        return;
+      }
+      restartInProgress = true;
       // LOGOUT = WhatsApp revoked the session (phone unlinked this device).
       // Session files on disk are now dead — clear them so the next boot
       // goes straight to QR instead of wasting time on an invalid session.
@@ -278,7 +284,7 @@ function attachEvents() {
       await safeDestroy();
       cleanupLockFiles();
       await notifySlack(`🚨 *WhatsApp LOGGED OUT* — QR rescan required!\nThe phone unlinked this device.\nVisit https://whatsapp-airtable-sync.onrender.com/qr to scan now.\nTime: ${nowIST()} IST`);
-      setTimeout(startClient, 5000);
+      setTimeout(() => { restartInProgress = false; startClient(); }, 8000);
       return;
     }
 
