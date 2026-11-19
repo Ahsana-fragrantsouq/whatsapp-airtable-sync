@@ -132,10 +132,38 @@ async function notifySlack(message) {
   }
 }
 
+// ─── Fetch latest WhatsApp Web version from npm registry at startup ──────────
+// Avoids "Couldn't log in" errors caused by bundled/pinned stale version.
+// npm registry is always reachable from Render; falls back gracefully.
+async function fetchLatestWAVersion() {
+  try {
+    const res = await fetch('https://registry.npmjs.org/@vinikjkkj/wa-version/latest', {
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await res.json();
+    // version looks like "2.3000.1044015310-abc1234" — wppconnect uses "-alpha" suffix
+    const ver = data.version.split('-')[0];
+    const versionStr = `${ver}-alpha`;
+    console.log(`📦 Latest WA version resolved: ${versionStr}`);
+    return versionStr;
+  } catch (err) {
+    console.log(`⚠️  Could not fetch latest WA version (${err.message}) — will use bundled default`);
+    return null;
+  }
+}
+
 // ─── WhatsApp Client ──────────────────────────────────────────────────────────
-function createClient() {
+function createClient(waVersion) {
+  const webVersionCache = waVersion ? {
+    type: 'remote',
+    remotePath: `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${waVersion}.html`,
+    localPath: '/app/.wwebjs_auth/wwebjs_vercache',
+  } : undefined;
+
   return new Client({
     authStrategy: new LocalAuth({ dataPath: '.wwebjs_auth' }),
+    ...(webVersionCache ? { webVersionCache } : {}),
     puppeteer: {
 
       headless: 'new',
@@ -263,31 +291,6 @@ function attachEvents() {
   // ── Auto-reconnect on disconnect ──────────────────────────────────────────
   client.on('disconnected', async (reason) => {
     console.log(`⚠️  WhatsApp disconnected: ${reason}`);
-
-    if (reason === 'LOGOUT') {
-      // Guard: only one LOGOUT restart cycle at a time
-      if (restartInProgress) {
-        console.log('⏭️  LOGOUT received but restart already in progress — ignoring duplicate');
-        return;
-      }
-      restartInProgress = true;
-      // LOGOUT = WhatsApp revoked the session (phone unlinked this device).
-      // Session files on disk are now dead — clear them so the next boot
-      // goes straight to QR instead of wasting time on an invalid session.
-      console.log('🗑️  LOGOUT — clearing dead session and backup...');
-      try {
-        execSync(`rm -rf "${SESSION_DIR}" "${BACKUP_DIR}" "${BACKUP_DIR}_tmp" 2>/dev/null || true`);
-        console.log('🗑️  Session and backup cleared');
-      } catch (_) {}
-      clientStatus = 'disconnected';
-      connectedAt = null;
-      await safeDestroy();
-      cleanupLockFiles();
-      await notifySlack(`🚨 *WhatsApp LOGGED OUT* — QR rescan required!\nThe phone unlinked this device.\nVisit https://whatsapp-airtable-sync.onrender.com/qr to scan now.\nTime: ${nowIST()} IST`);
-      setTimeout(() => { restartInProgress = false; startClient(); }, 8000);
-      return;
-    }
-
     await restartClient(`disconnected: ${reason}`);
   });
 
@@ -440,7 +443,7 @@ async function triggerSummarize(phone) {
 }
 
 // ─── Start / Restart Client ───────────────────────────────────────────────────
-function startClient() {
+async function startClient() {
   // If the primary session dir is missing/empty but a backup exists, restore first
   try {
     const hasSession = fs.existsSync(SESSION_DIR) && fs.readdirSync(SESSION_DIR).length > 0;
@@ -452,7 +455,8 @@ function startClient() {
     console.log(`⚠️  Session pre-check error: ${err.message}`);
   }
 
-  client = createClient();
+  const waVersion = await fetchLatestWAVersion();
+  client = createClient(waVersion);
   attachEvents();
   client.initialize().catch(async (err) => {
     console.error('❌ WhatsApp initialize failed:', err?.message || err?.name || 'unknown error');
