@@ -5,6 +5,16 @@ const { getQR, getStatus, getConnectedAt, triggerSummarize, getConversations, ru
 const app = express();
 app.use(express.json());
 
+// ─── Auth Middleware ───────────────────────────────────────────────────────────
+// Set API_SECRET in Render → Environment to protect sensitive endpoints.
+function requireAuth(req, res, next) {
+  const secret = process.env.API_SECRET;
+  if (!secret) return next(); // if not set, allow (dev mode)
+  const token = req.headers['x-api-key'] || req.query.token;
+  if (token !== secret) return res.status(401).json({ error: 'Unauthorized — pass x-api-key header or ?token= query param' });
+  next();
+}
+
 // ─── Health Check ─────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
   res.json({
@@ -14,8 +24,9 @@ app.get('/', (req, res) => {
   });
 });
 
+
 // ─── QR Code Page ─────────────────────────────────────────────────────────────
-app.get('/qr', (req, res) => {
+app.get('/qr', requireAuth, (req, res) => {
   const qrDataUrl = getQR();
 
   if (!qrDataUrl) {
@@ -48,7 +59,7 @@ app.get('/status', (req, res) => {
 });
 
 // ─── Active Conversations ──────────────────────────────────────────────────────
-app.get('/conversations', (req, res) => {
+app.get('/conversations', requireAuth, (req, res) => {
   const convos = getConversations();
   const summary = Object.entries(convos).map(([phone, data]) => ({
     phone,
@@ -61,7 +72,7 @@ app.get('/conversations', (req, res) => {
 });
 
 // ─── Manually Trigger Save for a Phone Number ─────────────────────────────────
-app.post('/save/:phone', async (req, res) => {
+app.post('/save/:phone', requireAuth, async (req, res) => {
   try {
     const phone = req.params.phone.replace(/\D/g, '');
     await triggerSummarize(phone);
@@ -80,7 +91,7 @@ const BACKFILL_MIN_CONNECTED_MS = 90 * 1000; // wait 90s after connect before al
 // GET /backfill?after=2026-07-02         → last week
 // GET /backfill?after=2026-06-09         → last month
 // GET /backfill?after=X&before=Y         → specific range
-app.all('/backfill', async (req, res) => {
+app.all('/backfill', requireAuth, async (req, res) => {
   if (backfillRunning) {
     return res.json({ success: false, error: 'Backfill already running. Check logs for progress.' });
   }

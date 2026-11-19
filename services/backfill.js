@@ -88,7 +88,13 @@ let chats;
     return;
   }
 
-  const individualChats = chats.filter((c) => !c.isGroup);
+  const individualChats = chats.filter((c) => {
+    if (c.isGroup) return false;
+    // Skip broadcast lists — interacting with them can create phantom lists on your phone
+    if (c.id._serialized.endsWith('@broadcast')) return false;
+    if (c.id._serialized === 'status@broadcast') return false;
+    return true;
+  });
   console.log(`📋 Found ${individualChats.length} individual chat(s) to scan`);
 
   let totalSessionsSaved = 0;
