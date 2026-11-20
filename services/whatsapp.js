@@ -290,9 +290,19 @@ function attachEvents() {
 
   // ── Auto-reconnect on disconnect ──────────────────────────────────────────
   client.on('disconnected', async (reason) => {
-    console.log(`⚠️  WhatsApp disconnected: ${reason}`);
-    await restartClient(`disconnected: ${reason}`);
-  });
+    console.log('⚠️  WhatsApp disconnected: ' + reason);
+    if (reason === 'LOGOUT') {
+      if (restartInProgress) { console.log('LOGOUT duplicate ignored'); return; }
+      restartInProgress = true;
+      console.log('LOGOUT clearing dead session...');
+      try { require('child_process').execSync('rm -rf /app/.wwebjs_auth /app/.wwebjs_auth_backup 2>/dev/null || true'); } catch(_) {}
+      clientStatus = 'disconnected'; connectedAt = null;
+      await safeDestroy(); cleanupLockFiles();
+      setTimeout(() => { restartInProgress = false; startClient(); }, 8000);
+      return;
+    }
+    await restartClient('disconnected: ' + reason);
+  });;
 
   // ── Incoming messages ─────────────────────────────────────────────────────
   client.on('message', async (msg) => {
